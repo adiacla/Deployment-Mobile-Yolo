@@ -24,6 +24,7 @@ Este proyecto implementa un sistema de detección automática de placas de vehí
 ---
 ## 1. **Backend - FastAPI en AWS EC2**
 
+Si tienes acceso a Learner LAb, incia el 
 ### 1.1 **Configurar la Instancia EC2 en AWS**
 
 1. En la consola de administración de AWS seleccione el servicio de EC2 (servidor virtual) o escriba en buscar.
