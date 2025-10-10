@@ -3,7 +3,7 @@
 
 Este proyecto implementa un sistema de detección automática de placas de vehículos y reconocimiento de caracteres (OCR) utilizando un modelo YOLOv8 entrenado mediante transfer learning y un servicio FastAPI para exponer un endpoint de inferencia.
 
-##T ecnologías usadas
+## Tecnologías usadas
 
 **Python 3.13**
 
@@ -24,7 +24,9 @@ Este proyecto implementa un sistema de detección automática de placas de vehí
 ---
 ## 1. **Backend - FastAPI en AWS EC2**
 
-Si tienes acceso a Learner LAb, incia el 
+Si tienes acceso a Learner LAb, incia el Learner Lab
+![alt text](https://github.com/adiacla/FullStack-RNN/blob/main/Imagenes/iraEC2.JPG?raw=true)
+
 ### 1.1 **Configurar la Instancia EC2 en AWS**
 
 1. En la consola de administración de AWS seleccione el servicio de EC2 (servidor virtual) o escriba en buscar.
