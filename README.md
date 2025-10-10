@@ -17,8 +17,14 @@ Este proyecto implementa un sistema de detección automática de placas de vehí
 
 **Torch** / torchvision
 
-vUvicorn** (servidor ASGI)
+**vUvicorn** (servidor ASGI)
 
 **SQLite** (opcional) para guardar resultados con timestamp
+
+---
+## Requisitos
+
+Asegúrate de tener Python 3.10+ (preferiblemente 3.13) y pip actualizado.
+Luego instala las dependencias:
 
 
