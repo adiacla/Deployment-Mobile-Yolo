@@ -5,11 +5,20 @@ Este proyecto implementa un sistema de detección automática de placas de vehí
 
 ##Tecnologías usadas
 
-Python 3.13
+**Python 3.13**
+
 **FastAPI** (framework backend)
+
 **Ultralytics** YOLOv8 (detección de objetos)
+
 **EasyOCR** (reconocimiento de texto)
+
 **OpenCV (cv2)** (procesamiento de imágenes)
+
 **Torch** / torchvision
+
 vUvicorn** (servidor ASGI)
+
 **SQLite** (opcional) para guardar resultados con timestamp
+
+
