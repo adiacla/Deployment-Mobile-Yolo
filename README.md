@@ -25,7 +25,7 @@ Este proyecto implementa un sistema de detección automática de placas de vehí
 ## 1. **Backend - FastAPI en AWS EC2**
 
 Si tienes acceso a Learner LAb, incia el Learner Lab
-![alt text](https://github.com/adiacla/FullStack-RNN/blob/main/Imagenes/iraEC2.JPG?raw=true)
+![alt text](https://raw.githubusercontent.com/adiacla/Deployment-Mobile-Yolo/refs/heads/main/imagenes/learnerlab.JPG))
 
 ### 1.1 **Configurar la Instancia EC2 en AWS**
 
