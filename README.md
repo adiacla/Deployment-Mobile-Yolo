@@ -303,6 +303,8 @@ sudo sync; sudo sysctl -w vm.drop_caches=3
 
 ## Pueba del Backend
 Puedes usar la prueba manual
+Descargue esta imagen de prueba a su pc
+![](https://raw.githubusercontent.com/adiacla/Deployment-Mobile-Yolo/refs/heads/main/imagenes/carroprueba.JPG)
 
 Prueba manual:
 
