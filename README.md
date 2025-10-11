@@ -173,8 +173,7 @@ pip install ultralytics fastapi uvicorn easyocr opencv-python-headless pillow nu
 
  ```
 ```bash
-python3 -m ultralytics check
-
+yolo check
  ```
 
 ### 1.3 Crear la API FastAPI
