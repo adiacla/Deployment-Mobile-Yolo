@@ -370,7 +370,7 @@ Agrega o verifica las siguientes rutas:
 
 ---
 
-## 📱 Crear un emulador (AVD)
+## Crear un emulador (AVD)
 
 1. Abre **Android Studio → More Actions → Virtual Device Manager**
 2. Crea un dispositivo tipo **Pixel 6 / API 33 o superior**
@@ -389,7 +389,7 @@ npm cache clean --force
 
 ---
 
-## 🚧 Crear y ejecutar tu proyecto
+## Crear y ejecutar tu proyecto
 
 1. Crear un nuevo proyecto:
    ```bash
@@ -420,7 +420,7 @@ npm cache clean --force
 
 ---
 
-## 🧠 Recomendaciones
+## Recomendaciones
 
 - Usa **VS Code** como editor principal.  
 - No instales `react-native-cli` globalmente.  
