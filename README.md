@@ -98,7 +98,7 @@ Si tienes acceso a Learner LAb, incia el Learner Lab
      
 
 
-17. Abre un puerto en el grupo de seguridad (por ejemplo, puerto **8080**) para permitir acceso a la API.
+17. Abre un puerto en el grupo de seguridad (por ejemplo, puerto **8080** o si requiere el **8720** así está en alguos ejemplos) para permitir acceso a la API.
 
 ![alt text](https://github.com/adiacla/FullStack-RNN/blob/main/Imagenes/Puerto.PNG?raw=true)
 
@@ -205,88 +205,278 @@ nano app.py
 ![alt text](https://github.com/adiacla/FullStack-RNN/blob/main/Imagenes/nanoApp.PNG?raw=true)
 
 
-Desarrollo del Backend API
+## Desarrollo del Backend API
 Usaremos FastAPI por su rendimiento y facilidad de uso. El backend aceptará una imagen, la procesará con el modelo Yolo8n con el modelo best.pt y devolverá la predicción.
 Puede copiar este codigo en tu editor de nano.
 
+
+## API: Detector de Placas Vehiculares con YOLOv8 y OCR (FastAPI)
+
+Este servicio expone un API REST basado en FastAPI que combina la detección de objetos con 
+el reconocimiento óptico de caracteres (OCR) para identificar placas vehiculares en imágenes.
+
+**Flujo general:**
+1. El usuario envía una imagen (JPG o PNG) mediante un `POST /predict/`.
+2. El modelo YOLOv8 detecta los objetos en la imagen (por ejemplo, vehículos y placas).
+3. Si se identifica una placa, se extrae el recorte y se procesa con EasyOCR.
+4. El servicio devuelve:
+   - El texto leído de la placa (`placa`),
+   - Una lista con las detecciones (etiqueta, confianza, coordenadas, texto detectado),
+   - La imagen procesada codificada en Base64 (opcional).
+
+**Endpoints principales:**
+- `GET /` → Verifica que el servidor esté activo.
+- `POST /predict/` → Realiza la detección y OCR sobre una imagen enviada.
+
+
 ```python
-from fastapi import FastAPI, File, UploadFile
-from fastapi.responses import JSONResponse
-from ultralytics import YOLO
-import easyocr
-import cv2
-import numpy as np
-import uvicorn
+#!/usr/bin/env python3
+# app.py -- FastAPI + YOLOv8 + EasyOCR para detección de placas
+# Requiere: fastapi uvicorn ultralytics easyocr opencv-python-headless pillow numpy python-multipart
+
 import os
+import logging
+from typing import Optional, List, Dict, Any
+from fastapi import FastAPI, File, UploadFile
+from fastapi.middleware.cors import CORSMiddleware
+from ultralytics import YOLO
+import numpy as np
+import cv2
+import easyocr
+import base64
 
-# Inicializar la aplicación FastAPI
-app = FastAPI(title="Detección de Placas con YOLOv8 + OCR")
+# -------------------------
+# Config / Logging
+# -------------------------
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger("yolo-plates")
 
-# Cargar modelo YOLO entrenado (usa tu ruta local al best.pt)
-MODEL_PATH = "best.pt"  # asegúrate de subirlo al mismo directorio
-model = YOLO(MODEL_PATH)
+MODEL_PATH = os.getenv("MODEL_PATH", "best.pt")  # ruta al best.pt
+OCR_LANGS = os.getenv("OCR_LANGS", "en").split(",")  # ej: "en" o "en,es"
+CONF_THRESH = float(os.getenv("CONF_THRESH", 0.25))  # umbral de confianza para detecciones
+RETURN_IMAGE = os.getenv("RETURN_IMAGE", "1") != "0"  # devolver imagen en base64 por defecto
 
-# Inicializar el lector OCR
-reader = easyocr.Reader(['en'])
+# -------------------------
+# App init
+# -------------------------
+app = FastAPI(title="YOLOv8 - Detector de Placas (OCR)")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # cambiar en producción por tu dominio
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# -------------------------
+# Cargar modelo y OCR
+# -------------------------
+logger.info("Cargando modelo YOLOv8 desde %s ...", MODEL_PATH)
+model = YOLO(MODEL_PATH)  # carga pesos
+logger.info("Modelo cargado: %s", getattr(model, "model", "YOLO model"))
+
+logger.info("Inicializando EasyOCR con idiomas: %s", OCR_LANGS)
+reader = easyocr.Reader(OCR_LANGS, gpu=False)
+
+# -------------------------
+# Helpers
+# -------------------------
+def ocr_read_text_from_roi(roi_bgr: np.ndarray) -> Optional[str]:
+    """
+    Preprocesa el ROI y ejecuta EasyOCR. Devuelve la cadena concatenada (sin espacios)
+    o None si no se detecta texto.
+    """
+    try:
+        if roi_bgr is None or roi_bgr.size == 0:
+            return None
+        # Convert BGR -> RGB para EasyOCR
+        roi_rgb = cv2.cvtColor(roi_bgr, cv2.COLOR_BGR2RGB)
+
+        # Escala y limpieza básica
+        h, w = roi_rgb.shape[:2]
+        scale = 1
+        if max(h, w) < 200:
+            scale = int(200 / max(h, w))
+            roi_rgb = cv2.resize(roi_rgb, (w * scale, h * scale), interpolation=cv2.INTER_CUBIC)
+
+        # Convertir a gris + equalize si ayuda
+        gray = cv2.cvtColor(roi_rgb, cv2.COLOR_RGB2GRAY)
+        gray = cv2.bilateralFilter(gray, d=9, sigmaColor=75, sigmaSpace=75)
+        gray = cv2.equalizeHist(gray)
+
+        # Adaptive threshold (opcional, EasyOCR suele funcionar bien sin binarizar)
+        # thresh = cv2.adaptiveThreshold(gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+        #                                cv2.THRESH_BINARY, 11, 2)
+        # usar la imagen RGB o gray: EasyOCR acepta numpy array RGB
+        # preferimos pasar la imagen RGB para mejores resultados en multi-color
+        result = reader.readtext(roi_rgb)
+        if not result:
+            return None
+        # Elegir el texto con mayor confianza
+        best = max(result, key=lambda x: x[2])
+        text = best[1]
+        if not text:
+            return None
+        # Normalizar: eliminar espacios extra y caracteres no alfanum
+        text = "".join(ch for ch in text if ch.isalnum())
+        return text.upper() if text else None
+    except Exception as e:
+        logger.exception("OCR error: %s", e)
+        return None
+
+def image_to_base64_jpg(img_bgr: np.ndarray) -> str:
+    """Codifica imagen BGR a base64 JPG string"""
+    _, buffer = cv2.imencode('.jpg', img_bgr, [int(cv2.IMWRITE_JPEG_QUALITY), 85])
+    return base64.b64encode(buffer).decode('utf-8')
+
+# -------------------------
+# Routes
+# -------------------------
+@app.get("/")
+def home():
+    return {"message": "YOLOv8 + OCR server running"}
 
 @app.post("/predict/")
 async def predict(file: UploadFile = File(...)):
+    """
+    Recibe una imagen (form-data, campo 'file') y devuelve detecciones y OCR.
+    Respuesta JSON:
+    {
+      "placa": "ABC123" | null,
+      "detections": [
+         {"label":"car","confidence":0.92,"box":[x1,y1,x2,y2],"text": null}
+      ],
+      "image": "<base64 jpg>"  # opcional
+    }
+    """
     try:
-        # Guardar la imagen temporalmente
         contents = await file.read()
-        temp_path = "temp.jpg"
-        with open(temp_path, "wb") as f:
-            f.write(contents)
+        nparr = np.frombuffer(contents, np.uint8)
+        frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+        if frame is None:
+            return {"error": "No se pudo decodificar la imagen"}
 
-        # Leer imagen con OpenCV
-        image = cv2.imread(temp_path)
+        # Inference YOLOv8 -> usar predict() para mayor compatibilidad
+        # conf=CONF_THRESH controla el umbral
+        results = model.predict(source=frame, conf=CONF_THRESH, verbose=False)
 
-        # Realizar detección con YOLOv8
-        results = model(image)[0]
+        if not results:
+            return {"error": "No result from model"}
 
-        detections = []
-        for r in results.boxes.data:
-            x1, y1, x2, y2, conf, cls = r.cpu().numpy()
-            x1, y1, x2, y2 = map(int, [x1, y1, x2, y2])
+        r = results[0]  # primer resultado
+        # obtener boxes si existen
+        try:
+            boxes_xyxy = r.boxes.xyxy.cpu().numpy() if len(r.boxes) > 0 else np.array([])
+            boxes_conf = r.boxes.conf.cpu().numpy() if len(r.boxes) > 0 else np.array([])
+            boxes_cls = r.boxes.cls.cpu().numpy() if len(r.boxes) > 0 else np.array([])
+        except Exception:
+            # fallback si r.boxes no tiene estructura esperada
+            boxes_xyxy = np.array([])
+            boxes_conf = np.array([])
+            boxes_cls = np.array([])
 
-            # Recortar la placa
-            placa_img = image[y1:y2, x1:x2]
+        detections: List[Dict[str, Any]] = []
+        placa_detectada: Optional[str] = None
 
-            # OCR con EasyOCR
-            ocr_results = reader.readtext(placa_img)
+        if boxes_xyxy.size > 0:
+            for i, box in enumerate(boxes_xyxy):
+                x1, y1, x2, y2 = map(int, box)
+                conf = float(boxes_conf[i]) if boxes_conf.size > 0 else None
+                cls_id = int(boxes_cls[i]) if boxes_cls.size > 0 else None
+                label = model.names[cls_id] if cls_id is not None and cls_id < len(model.names) else str(cls_id)
 
-            if ocr_results:
-                texto_detectado = ocr_results[0][1].upper()
-            else:
-                texto_detectado = ""
+                # recortar ROI con chequeo de límites
+                h, w = frame.shape[:2]
+                x1c, y1c = max(0, x1), max(0, y1)
+                x2c, y2c = min(w, x2), min(h, y2)
+                roi = frame[y1c:y2c, x1c:x2c].copy()
 
-            detections.append({
-                "bbox": [x1, y1, x2, y2],
-                "confidence": float(conf),
-                "class_id": int(cls),
-                "text": texto_detectado
-            })
+                text_detected = None
+                # Ejecutar OCR solo si la etiqueta sugiere placa/license/plate
+                if any(k in label.lower() for k in ["placa", "plate", "license"]):
+                    text_detected = ocr_read_text_from_roi(roi)
+                    if text_detected:
+                        placa_detectada = text_detected  # si hay múltiples se sobrescribe; puedes cambiar lógica
 
-        os.remove(temp_path)  # limpiar archivo temporal
+                # Dibujar en la imagen final
+                color = (0, 255, 0)
+                cv2.rectangle(frame, (x1c, y1c), (x2c, y2c), color, 2)
+                label_text = f"{label} {conf:.2f}" if conf is not None else label
+                cv2.putText(frame, label_text, (x1c, max(15, y1c-6)),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
 
-        return JSONResponse(content={"detections": detections})
+                if text_detected:
+                    cv2.putText(frame, text_detected, (x1c, y2c + 20),
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 0), 2)
+
+                detections.append({
+                    "label": label,
+                    "confidence": round(conf, 4) if conf is not None else None,
+                    "box": [int(x1c), int(y1c), int(x2c), int(y2c)],
+                    "text": text_detected
+                })
+
+        # convertir imagen a base64 si lo deseamos
+        img_b64 = None
+        if RETURN_IMAGE:
+            img_b64 = image_to_base64_jpg(frame)
+
+        resp = {
+            "placa": placa_detectada,
+            "detections": detections,
+            "image": img_b64
+        }
+        return resp
 
     except Exception as e:
-        return JSONResponse(content={"error": str(e)}, status_code=500)
+        logger.exception("Error en /predict/: %s", e)
+        return {"error": str(e)}
 
-
+# -------------------------
+# Iniciar servidor (si se ejecuta app.py directamente)
+# -------------------------
 if __name__ == "__main__":
-    # Ejecutar el servidor FastAPI
-    uvicorn.run(app, host="0.0.0.0", port=8720)
+    import uvicorn
+    port = int(os.getenv("PORT", 8080))
+    logger.info("Arrancando uvicorn en 0.0.0.0:%s", port)
+    # Nota: en producción recomendamos ejecutar: uvicorn app:app --host 0.0.0.0 --port 8080 --workers 1
+    uvicorn.run("app:app", host="0.0.0.0", port=port, reload=False)
 
 ```
+---
+### docs#
+La URL http://3.80.229.31:8080/docs (reemplazando la IP por la tuya) es una interfaz automática de documentación interactiva que FastAPI genera por defecto.
+
+Qué puedes hacer en /docs:
+
+Explorar todos los endpoints disponibles
+
+Por ejemplo:
+
+GET / → Prueba que el servidor está corriendo.
+
+POST /predict/ → Permite subir una imagen y ver la respuesta.
+
+**Ver los parámetros esperados y sus tipos**
+FastAPI usa type hints de Python para documentar los parámetros (por ejemplo file: UploadFile = File(...)).
+
+**Subir archivos directamente desde el navegador**
+En POST /predict/, verás un campo para seleccionar una imagen y probar el modelo sin usar Postman.
+
+**Observar la respuesta estructurada**
+Swagger muestra automáticamente la respuesta JSON del servidor (por ejemplo, la placa detectada y la imagen codificada).
+
+**Generar pruebas rápidas o debugging**
+Si algo no funciona, /docs te ayuda a verificar si el backend está recibiendo los archivos correctamente.
+
 ### 1.5 Ejecutar el Servidor FastAPI
 
 Para ejecutar el servidor de FastAPI, usa Uvicorn:
 
  ```bash
 source venv/bin/activate
-uvicorn app:app --host 0.0.0.0 --port 8080 --reload
+python3 app.py 
  ```
 
 ![alt text](https://github.com/adiacla/FullStack-RNN/blob/main/Imagenes/ServidorAws.PNG?raw=true)
@@ -306,7 +496,7 @@ Puedes usar la prueba manual
 Descargue esta imagen de prueba a su pc
 ![](https://raw.githubusercontent.com/adiacla/Deployment-Mobile-Yolo/refs/heads/main/imagenes/carroprueba.JPG)
 
-Prueba manual:
+**Prueba manual:**
 
 Usa herramientas como Postman o cURL para probar la API antes de integrarla con el frontend. Ejemplo de prueba con cURL:
 
@@ -328,6 +518,7 @@ Recuerda que debes poner la URL de tu EC2 acompañado con el :8080 que es el pue
 
 La API estará disponible en http://<tu_ip_ec2>:8080.
 
+---
 
 # Guía rápida de instalación — React Native en Windows 11
 
@@ -375,19 +566,11 @@ Agrega o verifica las siguientes rutas:
 ## Crear un emulador (AVD)
 
 1. Abre **Android Studio → More Actions → Virtual Device Manager**
-2. Crea un dispositivo tipo **Pixel 6 / API 33 o superior**
+2. Crea un dispositivo tipo **Pixel 6a / API 33 o superior**
 3. Inicia el emulador **antes** de ejecutar la app.
 
 > También puedes conectar tu teléfono Android con la depuración USB activada.
 
----
-
-##  Limpieza de instalaciones previas (solo si tuviste errores antes)
-
-```bash
-npm uninstall -g react-native-cli
-npm cache clean --force
-```
 ---
 
 # Activar modo desarrollador a tu telefono
@@ -427,38 +610,65 @@ Todo está correcto.
 Si dice “unauthorized”, toca Permitir depuración USB en tu celular.
 ---
 
-# Ejecutar tu app React Native
-Desde la carpeta del proyecto:
+##  Limpieza de instalaciones previas (solo si tuviste errores antes)
 
+```bash
+npm uninstall -g react-native-cli
+npm cache clean --force
+```
+
+---
+
+
+# Lector de Placas - Instalación y Ejecución
+
+## Requisitos
+
+No necesitas crear nada manualmente en Android Studio. Solo asegúrate de tener:
+
+- **Android Studio** (para los SDKs y emuladores).  
+- **Dispositivo físico** con Depuración USB activada.
+
+---
+
+## Crear el proyecto en React Native / Expo
+
+Si vas a crear una app móvil con React Native / Expo (como la que te proporcioné en `App.tsx`), **NO necesitas crear un proyecto nuevo en Android Studio desde cero**.  
+React Native se encarga de generar todo lo necesario (Gradle, manifest, APK, etc.).
+
+**Crear proyecto con Expo (recomendado):**
+
+```bash
+npx create-expo-app lector-placas --template expo-template-blank-typescript
+cd lector-placas
+
+
+### Opción 2 — Usar React Native CLI (nativo puro)
+
+Si ya tienes instalado Android Studio y SDKs, y quieres compilar un APK nativo completo (sin Expo), entonces sí usas este flujo:
+
+```bash
+npx react-native init DetectorPlacas
+cd DetectorPlacas
+```
+
+Luego ejecutas:
+```bash
 npx react-native run-android
+```
 
+**Este método:**
 
-React Native detectará tu Samsung automáticamente y compilará la app directamente en él.
+Usa Gradle y Android Studio internamente.
+
+Te da acceso al código nativo (Java/Kotlin).
+
+Requiere tener configurado correctamente el SDK de Android, ADB y el emulador o dispositivo físico.
 
 
 ---
 
-## Crear y ejecutar tu proyecto
-
-1. Crear un nuevo proyecto:
-   ```bash
-   npx react-native init MiApp
-   cd MiApp
-   ```
-
-2. Iniciar la app en Android:
-   ```bash
-   npx react-native run-android
-   ```
-
-3. (Opcional) Ejecutar el servidor Metro:
-   ```bash
-   npx react-native start
-   ```
-
----
-
-## 🧩 Solución de errores comunes
+## Solución de errores comunes
 
 | Error | Solución |
 |-------|-----------|
