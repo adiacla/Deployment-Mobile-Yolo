@@ -188,8 +188,71 @@ nano app.py
 
 
 Desarrollo del Backend API
-Usaremos FastAPI por su rendimiento y facilidad de uso. El backend aceptará una imagen, la procesará con el modelo VGG16 y devolverá la predicción.
+Usaremos FastAPI por su rendimiento y facilidad de uso. El backend aceptará una imagen, la procesará con el modelo Yolo8n con el modelo best.pt y devolverá la predicción.
 Puede copiar este codigo en tu editor de nano.
+
+```python
+from fastapi import FastAPI, File, UploadFile
+from fastapi.responses import JSONResponse
+from keras.applications.vgg16 import VGG16, preprocess_input, decode_predictions
+from keras.utils import img_to_array, load_img
+import numpy as np
+import uvicorn
+import json
+
+app = FastAPI()
+
+# Cargar el modelo VGG16
+model = VGG16(weights="imagenet")
+
+# Cargar las traducciones desde el archivo
+def load_translations(file_path="traduccion.txt"):
+   try:
+       with open(file_path, "r") as f:
+           translations = json.load(f)
+       return translations
+   except Exception as e:
+       print(f"Error loading translations: {str(e)}")
+       return {}
+
+translations = load_translations("traduccion.txt")
+
+@app.post("/predict/")
+async def predict(file: UploadFile = File(...)):
+   try:
+       # Leer y procesar la imagen
+       image = await file.read()
+       with open("temp.jpg", "wb") as f:
+           f.write(image)
+
+       img = load_img("temp.jpg", target_size=(224, 224))
+       x = img_to_array(img)
+       x = np.expand_dims(x, axis=0)
+       x = preprocess_input(x)
+
+       # Realizar predicción
+       predictions = model.predict(x)
+       decoded_predictions = decode_predictions(predictions, top=3)[0]
+
+       # Formatear las predicciones con las traducciones en español
+       results = []
+       for pred in decoded_predictions:
+           class_id = pred[0]
+           class_name = translations.get(class_id, pred[1])  # Si no se encuentra, usamos el nombre en inglés
+           probability = float(pred[2])
+           results.append({"class_id": class_id, "class_name": class_name, "probability": probability})
+
+       return JSONResponse(content={"predictions": results})
+
+   except Exception as e:
+       return JSONResponse(content={"error": str(e)}, status_code=500)
+
+
+if __name__ == "__main__":
+   uvicorn.run(app, host="0.0.0.0", port=8720)
+
+```
+
 
 
 
