@@ -388,6 +388,53 @@ Agrega o verifica las siguientes rutas:
 npm uninstall -g react-native-cli
 npm cache clean --force
 ```
+---
+
+# Activar modo desarrollador a tu telefono
+Recomendaciones específicas para tu caso
+
+## Activa el modo desarrollador
+
+Sigue los pasos:
+
+Ajustes → Acerca del teléfono → Información de software → Toca 7 veces Número de compilación.
+
+Verás el mensaje “Ahora eres desarrollador”.
+
+## Activa la depuración USB
+
+Ajustes → Opciones de desarrollador → activa Depuración USB.
+
+Conecta el teléfono por cable USB
+
+Usa un cable de datos (no solo de carga).
+
+Cuando aparezca el mensaje “¿Permitir depuración USB?” → pulsa Permitir siempre y Aceptar.
+
+## Verifica la conexión
+En la consola (CMD o terminal):
+```bash
+adb devices
+```
+
+Si ves algo como:
+```bash
+List of devices attached
+R58N123ABC	device
+````
+Todo está correcto.
+
+Si dice “unauthorized”, toca Permitir depuración USB en tu celular.
+---
+
+# Ejecutar tu app React Native
+Desde la carpeta del proyecto:
+
+npx react-native run-android
+
+
+React Native detectará tu Samsung automáticamente y compilará la app directamente en él.
+
 
 ---
 
