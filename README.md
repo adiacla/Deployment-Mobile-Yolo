@@ -324,7 +324,7 @@ Si vas a utilizar postman entra en el siguiente enlance https://www.postman.com 
    
 Recuerda que debes poner la URL de tu EC2 acompañado con el :8080 que es el puerto y con el /predict que es el endpoint que queremos probar.
 
-![alt text](https://github.com/adiacla/FullStack-RNN/blob/main/Imagenes/postman.PNG?raw=true)
+![alt text](https://raw.githubusercontent.com/adiacla/Deployment-Mobile-Yolo/refs/heads/main/imagenes/postmanprueba.JPG)
 
 La API estará disponible en http://<tu_ip_ec2>:8080.
 
