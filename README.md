@@ -136,6 +136,8 @@ python3 -V
 **Si se requiere, puede actualizar los paquetes**
  ```bash
 sudo apt update
+sudo apt install -y libgl1 libglib2.0-0
+
  ```
 ![alt text](https://github.com/adiacla/FullStack-RNN/blob/main/Imagenes/aptUpdate.PNG?raw=true)
 
@@ -171,7 +173,8 @@ pip install ultralytics fastapi uvicorn easyocr opencv-python-headless pillow nu
 
  ```
 ```bash
-pip install python-multipart
+python3 -m ultralytics check
+
  ```
 
 ### 1.3 Crear la API FastAPI
