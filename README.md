@@ -194,62 +194,72 @@ Puede copiar este codigo en tu editor de nano.
 ```python
 from fastapi import FastAPI, File, UploadFile
 from fastapi.responses import JSONResponse
-from keras.applications.vgg16 import VGG16, preprocess_input, decode_predictions
-from keras.utils import img_to_array, load_img
+from ultralytics import YOLO
+import easyocr
+import cv2
 import numpy as np
 import uvicorn
-import json
+import os
 
-app = FastAPI()
+# Inicializar la aplicación FastAPI
+app = FastAPI(title="Detección de Placas con YOLOv8 + OCR")
 
-# Cargar el modelo VGG16
-model = VGG16(weights="imagenet")
+# Cargar modelo YOLO entrenado (usa tu ruta local al best.pt)
+MODEL_PATH = "best.pt"  # asegúrate de subirlo al mismo directorio
+model = YOLO(MODEL_PATH)
 
-# Cargar las traducciones desde el archivo
-def load_translations(file_path="traduccion.txt"):
-   try:
-       with open(file_path, "r") as f:
-           translations = json.load(f)
-       return translations
-   except Exception as e:
-       print(f"Error loading translations: {str(e)}")
-       return {}
-
-translations = load_translations("traduccion.txt")
+# Inicializar el lector OCR
+reader = easyocr.Reader(['en'])
 
 @app.post("/predict/")
 async def predict(file: UploadFile = File(...)):
-   try:
-       # Leer y procesar la imagen
-       image = await file.read()
-       with open("temp.jpg", "wb") as f:
-           f.write(image)
+    try:
+        # Guardar la imagen temporalmente
+        contents = await file.read()
+        temp_path = "temp.jpg"
+        with open(temp_path, "wb") as f:
+            f.write(contents)
 
-       img = load_img("temp.jpg", target_size=(224, 224))
-       x = img_to_array(img)
-       x = np.expand_dims(x, axis=0)
-       x = preprocess_input(x)
+        # Leer imagen con OpenCV
+        image = cv2.imread(temp_path)
 
-       # Realizar predicción
-       predictions = model.predict(x)
-       decoded_predictions = decode_predictions(predictions, top=3)[0]
+        # Realizar detección con YOLOv8
+        results = model(image)[0]
 
-       # Formatear las predicciones con las traducciones en español
-       results = []
-       for pred in decoded_predictions:
-           class_id = pred[0]
-           class_name = translations.get(class_id, pred[1])  # Si no se encuentra, usamos el nombre en inglés
-           probability = float(pred[2])
-           results.append({"class_id": class_id, "class_name": class_name, "probability": probability})
+        detections = []
+        for r in results.boxes.data:
+            x1, y1, x2, y2, conf, cls = r.cpu().numpy()
+            x1, y1, x2, y2 = map(int, [x1, y1, x2, y2])
 
-       return JSONResponse(content={"predictions": results})
+            # Recortar la placa
+            placa_img = image[y1:y2, x1:x2]
 
-   except Exception as e:
-       return JSONResponse(content={"error": str(e)}, status_code=500)
+            # OCR con EasyOCR
+            ocr_results = reader.readtext(placa_img)
+
+            if ocr_results:
+                texto_detectado = ocr_results[0][1].upper()
+            else:
+                texto_detectado = ""
+
+            detections.append({
+                "bbox": [x1, y1, x2, y2],
+                "confidence": float(conf),
+                "class_id": int(cls),
+                "text": texto_detectado
+            })
+
+        os.remove(temp_path)  # limpiar archivo temporal
+
+        return JSONResponse(content={"detections": detections})
+
+    except Exception as e:
+        return JSONResponse(content={"error": str(e)}, status_code=500)
 
 
 if __name__ == "__main__":
-   uvicorn.run(app, host="0.0.0.0", port=8720)
+    # Ejecutar el servidor FastAPI
+    uvicorn.run(app, host="0.0.0.0", port=8720)
 
 ```
 
