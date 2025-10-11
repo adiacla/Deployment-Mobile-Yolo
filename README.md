@@ -165,7 +165,10 @@ Recuerda que en el prompt debe obersar que el env debe quedar activo
 
 **Instalar FastAPI, Uvicorn, Joblib, TensorFlow, Python-Multipart, Pillow**
  ```bash
+pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
+
 pip install ultralytics fastapi uvicorn easyocr opencv-python-headless pillow numpy python-multipart
+
  ```
 ```bash
 pip install python-multipart
