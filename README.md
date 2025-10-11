@@ -633,7 +633,7 @@ No necesitas crear nada manualmente en Android Studio. Solo asegúrate de tener:
 
 ## Crear el proyecto en React Native / Expo
 
-Si vas a crear una app móvil con React Native / Expo (como la que te proporcioné en `App.tsx`), **NO necesitas crear un proyecto nuevo en Android Studio desde cero**.  
+Si vas a crear una app móvil con React Native / Expo (como el siguiente `App.tsx`), **NO necesitas crear un proyecto nuevo en Android Studio desde cero**.  
 React Native se encarga de generar todo lo necesario (Gradle, manifest, APK, etc.).
 
 **Crear proyecto con Expo (recomendado):**
@@ -641,6 +641,60 @@ React Native se encarga de generar todo lo necesario (Gradle, manifest, APK, etc
 ```bash
 npx create-expo-app lector-placas --template expo-template-blank-typescript
 cd lector-placas
+```
+
+Reemplaza App.tsx con el código del lector de placas.
+
+**Estructura del proyecto:**
+```lua
+lector-placas/
+├── App.tsx                👈 Aquí va tu código
+├── app.json
+├── babel.config.js
+├── package.json
+├── tsconfig.json
+├── node_modules/
+└── assets/
+    ├── icon.png
+    ├── splash.png
+    └── ...
+```
+
+### 2. Instalar dependencias necesarias
+```bash
+# Expo CLI (si no lo tienes)
+npm install -g expo-cli
+
+# Texto a voz
+npx expo install expo-speech
+
+# Cámara
+npx expo install expo-camera
+npm install react-native-image-picker
+
+# Manipulación de imágenes
+npx expo install expo-image-manipulator
+
+# Guardar/leer archivos
+npx expo install expo-file-system
+
+# Reproducir audio
+npx expo install expo-av
+
+# Dibujos y gráficos
+npx expo install react-native-svg
+
+# Peticiones HTTP
+npm install axios
+```
+### 3. Ejecutar la app
+```bash
+npx expo start
+```
+
+Prueba en celular con Expo Go o en emulador.
+
+Expo maneja automáticamente permisos de cámara y red.
 
 
 ### Opción 2 — Usar React Native CLI (nativo puro)
