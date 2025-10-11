@@ -176,6 +176,24 @@ pip install ultralytics fastapi uvicorn easyocr opencv-python-headless pillow nu
 yolo check
  ```
 
+### Subir el archivo del modelo
+**Subir archivos con scp**
+El formato general del comando es:
+```bash
+scp -i "llavewebici.pem" <archivo_local> ubuntu@<DNS_PUBLICO>:/home/ubuntu/<carpeta_destino>
+```
+Por ejemplo, si quieres subir:
+
+best.pt
+
+app.py
+
+ejecuta en tu sesion cmd de tu pc:
+```
+scp -i "llavewebici.pem" best.pt app.py ubuntu@ec2-98-81-166-76.compute-1.amazonaws.com:/home/ubuntu/proyecto/
+```
+Esto copia ambos archivos al directorio /home/ubuntu/proyecto/ dentro de tu instancia EC2.
+
 ### 1.3 Crear la API FastAPI
 
 Crea un archivo app.py en tu instancia EC2 para definir la API que servirá las predicciones.
@@ -262,6 +280,51 @@ if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8720)
 
 ```
+### 1.5 Ejecutar el Servidor FastAPI
+
+Para ejecutar el servidor de FastAPI, usa Uvicorn:
+
+ ```bash
+source venv/bin/activate
+uvicorn app:app --host 0.0.0.0 --port 8080 --reload
+ ```
+
+![alt text](https://github.com/adiacla/FullStack-RNN/blob/main/Imagenes/ServidorAws.PNG?raw=true)
+
+### 1.6 Error en el Servidor
+
+![alt text](https://github.com/adiacla/FullStack-RNN/blob/main/Imagenes/Error.PNG?raw=true)
+
+Si al momento de ejecutar el servidor te da un error como en el de la anterior imagen en el cual se excede la memoria del sistema utiliza el siguiente comando y vuelve a intentarlo
+
+```bash
+sudo sync; sudo sysctl -w vm.drop_caches=3
+ ```
+
+## Pueba del Backend
+Puedes usar la prueba manual
+
+Prueba manual:
+
+Usa herramientas como Postman o cURL para probar la API antes de integrarla con el frontend. Ejemplo de prueba con cURL:
+
+curl -X POST -F "file=@image.jpg" http://ec2-54-164-41-174.compute-1.amazonaws.com:8080/predict/
+Espera un JSON como respuesta con las predicciones.
+
+Si vas a utilizar postman entra en el siguiente enlance https://www.postman.com , crea o ingresa a tu cuenta y sigue los siguientes pasos:
+1. Dale click en new request
+
+![alt text](https://github.com/adiacla/FullStack-RNN/blob/main/Imagenes/NewRequest.PNG?raw=true)
+   
+2. Poner las siguientes opciones en la request
+
+![alt text](https://github.com/adiacla/FullStack-RNN/blob/main/Imagenes/PostRequest.PNG?raw=true)
+   
+Recuerda que debes poner la URL de tu EC2 acompañado con el :8080 que es el puerto y con el /predict que es el endpoint que queremos probar.
+
+![alt text](https://github.com/adiacla/FullStack-RNN/blob/main/Imagenes/postman.PNG?raw=true)
+
+La API estará disponible en http://<tu_ip_ec2>:8080.
 
 
 
