@@ -833,10 +833,10 @@ const styles = StyleSheet.create({
 
 ### 2. Instalar dependencias necesarias
 ```bash
-# Expo CLI (si no lo tienes)
-npm install -g expo-cli
+# Instalar Expo en el proyecto (si aún no lo tienes)
+npm install expo
 
-# Texto a voz
+# Texto a voz (Text-to-Speech)
 npx expo install expo-speech
 
 # Cámara
@@ -852,44 +852,270 @@ npx expo install expo-file-system
 # Reproducir audio
 npx expo install expo-av
 
-# Dibujos y gráficos
+# Dibujos y gráficos (SVG)
 npx expo install react-native-svg
 
 # Peticiones HTTP
 npm install axios
 ```
 ### 3. Ejecutar la app
+
+Para iniciar tu app en modo desarrollo (web, Android o iOS):
 ```bash
 npx expo start
 ```
 
-Prueba en celular con Expo Go o en emulador.
+Luego podrás escanear el código QR con la app Expo Go o ejecutar directamente con:
+```bash
+npx expo run:android
+```
+o
 
-Expo maneja automáticamente permisos de cámara y red.
+npx expo run:ios
 
+---
+# Opción 2 — Usar React Native CLI (nativo puro)
 
-### Opción 2 — Usar React Native CLI (nativo puro)
+Si quieres generar un APK/IPA nativo y tener acceso completo al código nativo.
 
-Si ya tienes instalado Android Studio y SDKs, y quieres compilar un APK nativo completo (sin Expo), entonces sí usas este flujo:
-
+**1. Crear proyecto**
 ```bash
 npx react-native init DetectorPlacas
 cd DetectorPlacas
 ```
+**2. Instalar dependencias**
+``bash
+# Cámara y permisos
+npm install react-native-camera react-native-permissions
 
-Luego ejecutas:
-```bash
-npx react-native run-android
+# Texto a voz
+npm install react-native-tts
+
+# Selección / captura de imagen
+npm install react-native-image-picker
+
+# Peticiones HTTP
+npm install axios
 ```
 
-**Este método:**
+**3. Configurar permisos Android**
 
-Usa Gradle y Android Studio internamente.
+Editar android/app/src/main/AndroidManifest.xml y agregar:
+```
+<uses-permission android:name="android.permission.CAMERA"/>
+<uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"/>
+<uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"/>
+<uses-permission android:name="android.permission.RECORD_AUDIO"/>
+<uses-permission android:name="android.permission.INTERNET"/>
+```
+**4. Código de App.tsx**
+```tsx
+import React, { useState, useEffect } from 'react';
+import {
+  View,
+  Text,
+  Button,
+  StyleSheet,
+  Image,
+  Alert,
+  Platform,
+  PermissionsAndroid,
+  TextInput,
+  ActivityIndicator,
+} from 'react-native';
+import { launchCamera } from 'react-native-image-picker';
+import Tts from 'react-native-tts';
+import axios from 'axios';
 
-Te da acceso al código nativo (Java/Kotlin).
+const App = () => {
+  const [imagen, setImagen] = useState<string | null>(null);
+  const [placa, setPlaca] = useState<string | null>(null);
+  const [confidence, setConfidence] = useState<number | null>(null);
+  const [loading, setLoading] = useState(false);
 
-Requiere tener configurado correctamente el SDK de Android, ADB y el emulador o dispositivo físico.
+  // Campos para IP y puerto
+  const [ip, setIp] = useState('');
+  const [port, setPort] = useState('8080');
 
+  // Pedir permisos
+  const requestPermissions = async () => {
+    if (Platform.OS === 'android') {
+      const granted = await PermissionsAndroid.requestMultiple([
+        PermissionsAndroid.PERMISSIONS.CAMERA,
+        PermissionsAndroid.PERMISSIONS.READ_EXTERNAL_STORAGE,
+        PermissionsAndroid.PERMISSIONS.WRITE_EXTERNAL_STORAGE,
+      ]);
+      const allGranted = Object.values(granted).every(
+        status => status === PermissionsAndroid.RESULTS.GRANTED
+      );
+      if (!allGranted) {
+        Alert.alert('Permisos denegados', 'La app necesita permisos para funcionar.');
+      }
+    }
+  };
+
+  useEffect(() => {
+    requestPermissions();
+    Tts.setDefaultLanguage('es-ES');
+    Tts.setDefaultRate(0.5);
+  }, []);
+
+  const tomarFoto = () => {
+    launchCamera({ mediaType: 'photo', cameraType: 'back', quality: 0.5 }, response => {
+      if (response.didCancel) return;
+      if (response.errorCode) return console.log(response.errorMessage);
+      const uri = response.assets?.[0].uri;
+      setImagen(uri || null);
+    });
+  };
+
+  const enviarImagen = async () => {
+    if (!imagen) {
+      Alert.alert('Error', 'Toma primero una foto.');
+      return;
+    }
+    if (!ip) {
+      Alert.alert('Error', 'Ingresa la dirección IP del servidor.');
+      return;
+    }
+
+    setLoading(true);
+
+    try {
+      const formData = new FormData();
+      formData.append('upload', {
+        uri: imagen,
+        type: 'image/jpeg',
+        name: 'placa.jpg',
+      } as any);
+
+      const url = `http://${ip}:${port}/plate-reader/`; // API local
+
+      const response = await axios.post(url, formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      });
+
+      const result = response.data.results?.[0];
+      if (result) {
+        setPlaca(result.plate?.toUpperCase() || null);
+        setConfidence(result.confidence || null);
+        Tts.speak(`Placa detectada: ${result.plate}`);
+      } else {
+        Alert.alert('No se detectó ninguna placa.');
+      }
+    } catch (error: any) {
+      console.error(error);
+      Alert.alert('Error', `No se pudo conectar con ${ip}:${port}`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <View style={styles.container}>
+      <Text style={styles.title}>📷 Lector de Placas</Text>
+
+      <Text style={styles.label}>IP del servidor:</Text>
+      <TextInput
+        style={styles.input}
+        placeholder="Ej: 192.168.1.100"
+        placeholderTextColor="#999"
+        value={ip}
+        onChangeText={setIp}
+      />
+
+      <Text style={styles.label}>Puerto:</Text>
+      <TextInput
+        style={styles.input}
+        placeholder="8080"
+        placeholderTextColor="#999"
+        keyboardType="numeric"
+        value={port}
+        onChangeText={setPort}
+      />
+
+      <Button title="Tomar Foto" onPress={tomarFoto} />
+      <View style={{ marginTop: 10 }} />
+      <Button title="Enviar Imagen" onPress={enviarImagen} />
+
+      {loading && (
+        <ActivityIndicator size="large" color="#007bff" style={{ marginTop: 15 }} />
+      )}
+
+      {imagen && <Image source={{ uri: imagen }} style={styles.image} />}
+
+      {placa && confidence && (
+        <Text style={styles.text}>
+          Placa: {placa} {'\n'}
+          Confianza: {(confidence * 100).toFixed(2)}%
+        </Text>
+      )}
+    </View>
+  );
+};
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+    backgroundColor: '#f9f9f9',
+  },
+  title: { fontSize: 24, marginBottom: 20, fontWeight: 'bold', color: '#333' },
+  label: { alignSelf: 'flex-start', color: '#333', fontSize: 16, marginTop: 10 },
+  input: {
+    width: '100%',
+    borderWidth: 1,
+    borderColor: '#ccc',
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    fontSize: 16,
+    backgroundColor: '#fff',
+  },
+  image: {
+    width: 300,
+    height: 200,
+    marginTop: 20,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#ccc',
+  },
+  text: { marginTop: 10, fontSize: 18, textAlign: 'center', color: '#333' },
+});
+
+export default App;
+
+```
+
+5. Ejecutar en Android
+# Inicia Metro bundler
+npx react-native start
+
+# En otra terminal, ejecuta la app
+npx react-native run-android
+
+
+La app se instalará en tu emulador o dispositivo físico.
+
+Solicitará permisos automáticamente en Android.
+
+6. Notas iOS (opcional)
+
+Agrega en ios/DetectorPlacas/Info.plist:
+
+<key>NSCameraUsageDescription</key>
+<string>Necesitamos acceder a la cámara para capturar placas</string>
+<key>NSPhotoLibraryUsageDescription</key>
+<string>Necesitamos acceder a la galería para guardar fotos</string>
+<key>NSMicrophoneUsageDescription</key>
+<string>Necesitamos usar el micrófono para TTS</string>
+
+✅ Ventajas de cada opción
+Opción	Ventajas
+Expo	Rápido, sencillo, permisos manejados automáticamente, pruebas inmediatas en celular.
+React Native CLI	APK/IPA nativo listo para producción, acceso completo al código nativo, más control sobre permisos y librerías nativa
 
 ---
 
