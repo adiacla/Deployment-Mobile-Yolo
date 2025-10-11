@@ -366,7 +366,9 @@ Agrega o verifica las siguientes rutas:
 | Variable | Valor sugerido |
 |-----------|----------------|
 | **ANDROID_HOME** | `%LOCALAPPDATA%\Android\Sdk` |
-| **Path** | `%ANDROID_HOME%\platform-tools`| `%ANDROID_HOME%\emulator`|`%ANDROID_HOME%\cmdline-tools\latest\bin` |
+| **Path** | `%ANDROID_HOME%\platform-tools`|
+|**Path** |  `%ANDROID_HOME%\emulator`|
+|**Path**  | `%ANDROID_HOME%\cmdline-tools\latest\bin` |
 
 ---
 
