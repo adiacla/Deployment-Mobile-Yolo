@@ -329,6 +329,104 @@ Recuerda que debes poner la URL de tu EC2 acompañado con el :8080 que es el pue
 La API estará disponible en http://<tu_ip_ec2>:8080.
 
 
+# Guía rápida de instalación — React Native en Windows 11
+
+## Requisitos previos
+
+1. **Node.js y npm**  
+   Verifica versiones (deben ser ≥ Node 18, npm ≥ 9):
+   ```bash
+   node -v
+   npm -v
+   ```
+   > Si no los tienes, instala la versión **LTS** desde [https://nodejs.org](https://nodejs.org)
+
+2. **Java Development Kit (JDK)**  
+   Instala **OpenJDK 17** o superior:  
+   [https://adoptium.net](https://adoptium.net)
+
+3. **Android Studio**  
+   Descarga desde  [https://developer.android.com/studio](https://developer.android.com/studio)
+
+   Luego, abre **SDK Manager** y verifica que estén instaladas:
+   - ✅ Android SDK Platform **35**
+   - ✅ Android SDK Build-Tools **35.0.0**
+   - ✅ Android Emulator
+   - ✅ Android SDK Command-line Tools (latest)
+   - ✅ NDK (Side by side)
+   - ✅ CMake
+---
+
+## Configurar variables de entorno
+
+Abre “Editar variables de entorno del sistema” → “Variables de usuario”.
+
+Agrega o verifica las siguientes rutas:
+
+| Variable | Valor sugerido |
+|-----------|----------------|
+| **ANDROID_HOME** | `%LOCALAPPDATA%\Android\Sdk` |
+| **Path** | `%ANDROID_HOME%\platform-tools`| `%ANDROID_HOME%\emulator`|`%ANDROID_HOME%\cmdline-tools\latest\bin` |
+
+---
+
+## 📱 Crear un emulador (AVD)
+
+1. Abre **Android Studio → More Actions → Virtual Device Manager**
+2. Crea un dispositivo tipo **Pixel 6 / API 33 o superior**
+3. Inicia el emulador **antes** de ejecutar la app.
+
+> También puedes conectar tu teléfono Android con la depuración USB activada.
+
+---
+
+##  Limpieza de instalaciones previas (solo si tuviste errores antes)
+
+```bash
+npm uninstall -g react-native-cli
+npm cache clean --force
+```
+
+---
+
+## 🚧 Crear y ejecutar tu proyecto
+
+1. Crear un nuevo proyecto:
+   ```bash
+   npx react-native init MiApp
+   cd MiApp
+   ```
+
+2. Iniciar la app en Android:
+   ```bash
+   npx react-native run-android
+   ```
+
+3. (Opcional) Ejecutar el servidor Metro:
+   ```bash
+   npx react-native start
+   ```
+
+---
+
+## 🧩 Solución de errores comunes
+
+| Error | Solución |
+|-------|-----------|
+| `SDK location not found` | Revisa la variable `ANDROID_HOME`. |
+| `JAVA_HOME not set` | Configura la ruta del JDK (`C:\Program Files\Eclipse Adoptium\jdk-17\`). |
+| `Emulator not found` | Abre Android Studio y corre el AVD manualmente. |
+| `Build failed` | Ejecuta `cd android && gradlew clean` y vuelve a intentar. |
+
+---
+
+## 🧠 Recomendaciones
+
+- Usa **VS Code** como editor principal.  
+- No instales `react-native-cli` globalmente.  
+- Usa siempre `npx react-native ...` para evitar conflictos.  
+- Mantén Android Studio y las SDK Tools actualizadas.  
+
 
 
 
