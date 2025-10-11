@@ -660,6 +660,177 @@ lector-placas/
     └── ...
 ```
 
+El codigo de App.tsx es
+```tsx
+import React, { useState, useRef, useEffect } from 'react';
+import { View, Text, Button, StyleSheet, Image, ActivityIndicator, TextInput, Alert } from 'react-native';
+import { Camera } from 'expo-camera';
+import * as Speech from 'expo-speech';
+import * as ImageManipulator from 'expo-image-manipulator';
+import axios from 'axios';
+
+export default function App() {
+  const [hasPermission, setHasPermission] = useState<boolean | null>(null);
+  const [cameraReady, setCameraReady] = useState(false);
+  const [imagen, setImagen] = useState<string | null>(null);
+  const [placa, setPlaca] = useState<string | null>(null);
+  const [confidence, setConfidence] = useState<number | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  // Datos del servidor
+  const [ip, setIp] = useState('');
+  const [port, setPort] = useState('8080');
+
+  const cameraRef = useRef<Camera | null>(null);
+
+  // Pedir permisos cámara al inicio
+  useEffect(() => {
+    (async () => {
+      const { status } = await Camera.requestCameraPermissionsAsync();
+      setHasPermission(status === 'granted');
+    })();
+  }, []);
+
+  if (hasPermission === false) {
+    return (
+      <View style={styles.container}>
+        <Text>Necesitas permitir el acceso a la cámara.</Text>
+      </View>
+    );
+  }
+
+  const tomarFoto = async () => {
+    if (cameraRef.current) {
+      try {
+        const photo = await cameraRef.current.takePictureAsync({ base64: false });
+        const manipResult = await ImageManipulator.manipulateAsync(
+          photo.uri,
+          [{ resize: { width: 800 } }],
+          { compress: 0.7, format: ImageManipulator.SaveFormat.JPEG }
+        );
+        setImagen(manipResult.uri);
+      } catch (error) {
+        console.error(error);
+      }
+    }
+  };
+
+  const enviarImagen = async () => {
+    if (!imagen) {
+      Alert.alert('Error', 'Toma primero una foto.');
+      return;
+    }
+    if (!ip) {
+      Alert.alert('Error', 'Ingresa la dirección IP del servidor.');
+      return;
+    }
+
+    setLoading(true);
+
+    try {
+      const formData = new FormData();
+      formData.append('upload', {
+        uri: imagen,
+        type: 'image/jpeg',
+        name: 'placa.jpg',
+      } as any);
+
+      const url = `http://${ip}:${port}/plate-reader/`; // URL dinámica
+
+      const response = await axios.post(url, formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      });
+
+      const result = response.data.results?.[0];
+      if (result) {
+        setPlaca(result.plate?.toUpperCase() || null);
+        setConfidence(result.confidence || null);
+        Speech.speak(`Placa detectada: ${result.plate}`);
+      } else {
+        Alert.alert('No se detectó ninguna placa.');
+      }
+    } catch (error: any) {
+      console.error(error);
+      Alert.alert('Error', `No se pudo conectar con ${ip}:${port}`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <View style={styles.container}>
+      {cameraRef ? (
+        <Camera style={styles.camera} ref={cameraRef} onCameraReady={() => setCameraReady(true)} />
+      ) : (
+        <View style={[styles.camera, { justifyContent: 'center', alignItems: 'center' }]}>
+          <Text>Cargando cámara...</Text>
+        </View>
+      )}
+
+      <View style={styles.overlay}>
+        <Text style={styles.label}>IP del servidor:</Text>
+        <TextInput
+          style={styles.input}
+          placeholder="Ej: 192.168.1.100"
+          placeholderTextColor="#aaa"
+          value={ip}
+          onChangeText={setIp}
+        />
+        <Text style={styles.label}>Puerto:</Text>
+        <TextInput
+          style={styles.input}
+          placeholder="8080"
+          placeholderTextColor="#aaa"
+          keyboardType="numeric"
+          value={port}
+          onChangeText={setPort}
+        />
+
+        <Button title="Tomar Foto" onPress={tomarFoto} disabled={!cameraReady || loading} />
+        <Button title="Enviar Imagen" onPress={enviarImagen} disabled={!imagen || loading} />
+
+        {loading && <ActivityIndicator size="large" color="#00ffcc" style={{ marginTop: 10 }} />}
+
+        {placa && confidence && (
+          <Text style={styles.text}>
+            Placa: {placa}{'\n'}
+            Confianza: {(confidence * 100).toFixed(2)}%
+          </Text>
+        )}
+
+        {imagen && <Image source={{ uri: imagen }} style={styles.preview} />}
+      </View>
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: { flex: 1, backgroundColor: '#000' },
+  camera: { flex: 1 },
+  overlay: {
+    position: 'absolute',
+    bottom: 10,
+    width: '90%',
+    alignSelf: 'center',
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    padding: 15,
+    borderRadius: 10,
+  },
+  label: { color: '#fff', marginTop: 5, fontSize: 16 },
+  input: {
+    backgroundColor: '#222',
+    color: '#fff',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 8,
+    marginBottom: 10,
+  },
+  text: { color: '#fff', fontSize: 18, marginTop: 10, textAlign: 'center' },
+  preview: { width: '100%', height: 200, marginTop: 10, borderRadius: 8 },
+});
+
+```
+
 ### 2. Instalar dependencias necesarias
 ```bash
 # Expo CLI (si no lo tienes)
