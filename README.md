@@ -58,7 +58,7 @@ Si tienes acceso a Learner LAb, incia el Learner Lab
 7. Habilite los puertos de shh, web y https, para este proyecto no lo vamos a usar no es necesario, pero si vas a publicar una web es requerido.
    ![alt text](https://github.com/adiacla/FullStack-RNN/blob/main/Imagenes/irfirewall.JPG?raw=true)
 
-8. Configure el almacenamiento. Este proyecto como se dijo requere capacidad en disco. Aumente el disco a 16 GiB.
+8. Configure el almacenamiento. Este proyecto como se dijo requere capacidad en disco. Aumente el disco minimo a **32** GiB.
 
    ![alt text](https://github.com/adiacla/FullStack-RNN/blob/main/Imagenes/iraconfiguraralmacenamiento.JPG?raw=true)
 
@@ -165,20 +165,10 @@ Recuerda que en el prompt debe obersar que el env debe quedar activo
 
 **Instalar FastAPI, Uvicorn, Joblib, TensorFlow, Python-Multipart, Pillow**
  ```bash
-pip install fastapi uvicorn keras
-
- ```
-```bash
-pip install tensorflow
-
+pip install ultralytics fastapi uvicorn easyocr opencv-python-headless pillow numpy python-multipart
  ```
 ```bash
 pip install python-multipart
-
- ```
-```bash
-pip install pillow
-
  ```
 
 ### 1.3 Crear la API FastAPI
