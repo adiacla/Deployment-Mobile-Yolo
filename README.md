@@ -660,14 +660,103 @@ lector-placas/
     └── ...
 ```
 
-El codigo de App.tsx es
+
+**1. Crear proyecto**
+
+Cree una carpeta de proyecto
+luego
+```bash
+npx create-expo-app my-camera-app 
+cd DetectorPlacas
+```
+
+Ajustar package.json para SDK 50:
+Abre package.json y modifica las versiones de expo y react-native a las correspondientes al SDK 50 (ej. ~50.0.0 y 0.73.6).
+
+```json
+{
+  "name": "placas",
+  "main": "index.tsx", 
+  "version": "1.0.0",
+  "scripts": {
+    "start": "expo start",
+    "reset-project": "node ./scripts/reset-project.js",
+    "android": "expo start --android",
+    "ios": "expo start --ios",
+    "web": "expo start --web",
+    "lint": "expo lint"
+  },
+  "dependencies": {
+    "@expo/vector-icons": "^15.0.2",
+    "@react-navigation/bottom-tabs": "^7.4.0",
+    "@react-navigation/elements": "^2.6.3",
+    "@react-navigation/native": "^7.1.8",
+    "expo": "~50.0.0",
+    "expo-camera": "~14.0.5", 
+    "expo-constants": "~18.0.9",
+    "expo-font": "~14.0.9",
+    "expo-haptics": "~15.0.7",
+    "expo-image": "~3.0.9",
+    "expo-image-manipulator": "~12.0.5", 
+    "expo-linking": "~8.0.8",
+    "expo-router": "~6.0.11",
+    "expo-splash-screen": "~31.0.10",
+    "expo-speech": "~12.0.2", 
+    "expo-status-bar": "~3.0.8",
+    "expo-symbols": "~1.0.7",
+    "expo-system-ui": "~6.0.7",
+    "expo-web-browser": "~15.0.8",
+    "react": "18.2.0",             
+    "react-dom": "18.2.0",         
+    "react-native": "0.73.6",
+    "react-native-gesture-handler": "~2.28.0",
+    "react-native-worklets": "0.5.1",
+    "react-native-reanimated": "~4.1.1",
+    "react-native-safe-area-context": "~5.6.0",
+    "react-native-screens": "~4.16.0",
+    "react-native-web": "~0.21.0",
+    "axios": "^1.7.2"    
+  },          
+  "devDependencies": {
+    "@babel/core": "^7.20.0",      
+    "@types/react": "~18.2.45",    
+    "typescript": "~5.1.3",        
+    "eslint": "^9.25.0",
+    "eslint-config-expo": "~10.0.0"
+  },
+  "private": true
+}
+
+```
+
+**2. Instalar dependencias**
+Limpiar e instalar dependencias base (para SDK 50):
+
+``bash
+rmdir /s /q node_modules
+del package-lock.json
+npm install
+``
+``bash
+npx expo install expo-camera expo-image-manipulator expo-speech
+npm install axios
+```
+
+Copia tu código index.tsx:
+Si tu archivo principal actual se llama App.tsx, renómbralo a index.tsx.
+Borra el contenido de index.tsx.
+Pega el código completo de tu index.tsx que me proporcionaste al inicio de la conversación.
+Guarda el archivo.
+
+
+
 ```tsx
-import React, { useState, useRef, useEffect } from 'react';
-import { View, Text, Button, StyleSheet, Image, ActivityIndicator, TextInput, Alert } from 'react-native';
-import { Camera } from 'expo-camera';
-import * as Speech from 'expo-speech';
-import * as ImageManipulator from 'expo-image-manipulator';
-import axios from 'axios';
+import axios from "axios";
+import { Camera, CameraType } from 'expo-camera'; // <-- Agregado CameraType para mayor claridad
+import * as ImageManipulator from "expo-image-manipulator";
+import * as Speech from "expo-speech";
+import React, { useEffect, useRef, useState } from "react";
+import { ActivityIndicator, Alert, Button, Image, StyleSheet, Text, TextInput, View, Platform } from "react-native"; // <-- Agregado Platform
 
 export default function App() {
   const [hasPermission, setHasPermission] = useState<boolean | null>(null);
@@ -676,82 +765,128 @@ export default function App() {
   const [placa, setPlaca] = useState<string | null>(null);
   const [confidence, setConfidence] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
-
-  // Datos del servidor
-  const [ip, setIp] = useState('');
-  const [port, setPort] = useState('8080');
-
+  // Es buena práctica usar un estado para la IP por defecto, pero permitir que el usuario la cambie.
+  // Podrías inicializarla desde una variable de entorno o configuración.
+  const [ip, setIp] = useState("18.209.15.47"); 
+  const [port, setPort] = useState("8080");
   const cameraRef = useRef<Camera | null>(null);
 
-  // Pedir permisos cámara al inicio
   useEffect(() => {
     (async () => {
-      const { status } = await Camera.requestCameraPermissionsAsync();
-      setHasPermission(status === 'granted');
+      // Solicitar permiso de cámara
+      const { status: cameraStatus } = await Camera.requestCameraPermissionsAsync();
+      // Solicitar permiso de micrófono (aunque no lo usas directamente para la foto, Expo lo pide)
+      const { status: microphoneStatus } = await Camera.requestMicrophonePermissionsAsync();
+      
+      // Considerar que ambos deben estar garantizados si ambos son críticos,
+      // o manejar individualmente si uno es opcional.
+      setHasPermission(cameraStatus === "granted" && microphoneStatus === "granted");
     })();
   }, []);
 
+  // Manejo inicial de permisos antes de renderizar la cámara
+  if (hasPermission === null) {
+    return (
+      <View style={styles.center}>
+        <Text style={{ color: "#fff" }}>Cargando permisos de cámara...</Text>
+      </View>
+    );
+  }
+
   if (hasPermission === false) {
     return (
-      <View style={styles.container}>
-        <Text>Necesitas permitir el acceso a la cámara.</Text>
+      <View style={styles.center}>
+        <Text style={{ color: "#fff" }}>Necesitas permitir el acceso a la cámara y al micrófono para usar esta aplicación.</Text>
       </View>
     );
   }
 
   const tomarFoto = async () => {
+    if (!cameraReady) { // Asegurarse de que la cámara esté lista antes de intentar tomar la foto
+      Alert.alert("Error", "La cámara no está lista aún.");
+      return;
+    }
     if (cameraRef.current) {
       try {
+        setLoading(true); // Mostrar indicador de carga mientras se toma y manipula la foto
         const photo = await cameraRef.current.takePictureAsync({ base64: false });
+        // Comprobar si la URI de la foto es válida antes de manipularla
+        if (!photo.uri) {
+          Alert.alert("Error", "No se pudo obtener la URI de la foto.");
+          return;
+        }
+        
         const manipResult = await ImageManipulator.manipulateAsync(
           photo.uri,
           [{ resize: { width: 800 } }],
           { compress: 0.7, format: ImageManipulator.SaveFormat.JPEG }
         );
+        
+        if (!manipResult.uri) {
+            Alert.alert("Error", "No se pudo manipular la imagen.");
+            return;
+        }
         setImagen(manipResult.uri);
       } catch (error) {
-        console.error(error);
+        console.error("Error al tomar o manipular la foto:", error);
+        Alert.alert("Error", "No se pudo tomar o procesar la foto.");
+      } finally {
+        setLoading(false); // Ocultar indicador de carga
       }
     }
   };
 
   const enviarImagen = async () => {
-    if (!imagen) {
-      Alert.alert('Error', 'Toma primero una foto.');
-      return;
-    }
-    if (!ip) {
-      Alert.alert('Error', 'Ingresa la dirección IP del servidor.');
-      return;
-    }
+    if (!imagen) return Alert.alert("Error", "Toma primero una foto.");
+    // Usar la IP por defecto si el usuario no la ha cambiado
+    const serverIp = ip || "18.209.15.47";
+    const serverPort = port || "8080"; // Usar el puerto por defecto si el usuario no lo ha cambiado
 
     setLoading(true);
+    setPlaca(null); // Limpiar resultados anteriores al enviar una nueva imagen
+    setConfidence(null);
 
     try {
       const formData = new FormData();
-      formData.append('upload', {
-        uri: imagen,
-        type: 'image/jpeg',
-        name: 'placa.jpg',
+      formData.append("file", {
+        uri: Platform.OS === 'android' ? imagen : imagen.replace("file://", ""), // Corrección para iOS que a veces necesita remover "file://"
+        type: "image/jpeg",
+        name: "placa.jpg",
       } as any);
-
-      const url = `http://${ip}:${port}/plate-reader/`; // URL dinámica
+      
+      const url = `http://${serverIp}:${serverPort}/predict/`; // Usar serverIp y serverPort
 
       const response = await axios.post(url, formData, {
-        headers: { 'Content-Type': 'multipart/form-data' },
+        headers: { "Content-Type": "multipart/form-data" },
+        timeout: 10000, // Añadir un timeout para la petición (ej. 10 segundos)
       });
 
-      const result = response.data.results?.[0];
-      if (result) {
-        setPlaca(result.plate?.toUpperCase() || null);
-        setConfidence(result.confidence || null);
-        Speech.speak(`Placa detectada: ${result.plate}`);
+      const data = response.data;
+      if (data.placa && data.detections?.length > 0) {
+        const detection = data.detections[0];
+        setPlaca(data.placa.toUpperCase());
+        setConfidence(detection.confidence);
+        Speech.speak(`Placa detectada: ${data.placa}`);
       } else {
-        Alert.alert('No se detectó ninguna placa.');
+        Alert.alert("Detección", "No se detectó ninguna placa en la imagen.");
       }
-    } catch (error: any) {
-      console.error(error);
-      Alert.alert('Error', `No se pudo conectar con ${ip}:${port}`);
+    } catch (error) {
+      console.error("Error al enviar imagen:", error);
+      // Manejo más específico de errores de red vs. errores del servidor
+      if (axios.isAxiosError(error)) {
+        if (error.response) {
+          // El servidor respondió con un status diferente de 2xx
+          Alert.alert("Error del servidor", `Código: ${error.response.status}, Mensaje: ${error.response.data?.message || 'Error desconocido'}`);
+        } else if (error.request) {
+          // La petición fue hecha pero no se recibió respuesta (ej. red caída, servidor no responde)
+          Alert.alert("Error de conexión", `No se pudo conectar con el servidor en http://${serverIp}:${serverPort}. Verifica la IP, puerto y conexión a internet.`);
+        } else {
+          // Algo más ocurrió al configurar la petición
+          Alert.alert("Error", "Algo salió mal al preparar la petición.");
+        }
+      } else {
+        Alert.alert("Error", `Ocurrió un error inesperado: ${error instanceof Error ? error.message : String(error)}`);
+      }
     } finally {
       setLoading(false);
     }
@@ -759,22 +894,28 @@ export default function App() {
 
   return (
     <View style={styles.container}>
-      {cameraRef ? (
-        <Camera style={styles.camera} ref={cameraRef} onCameraReady={() => setCameraReady(true)} />
-      ) : (
-        <View style={[styles.camera, { justifyContent: 'center', alignItems: 'center' }]}>
-          <Text>Cargando cámara...</Text>
-        </View>
+      {/* Vista de la cámara */}
+      {hasPermission && ( // Solo renderizar la cámara si tenemos permiso
+        <Camera
+          style={styles.camera}
+          type={CameraType.back} // Uso explícito de CameraType
+          ref={cameraRef}
+          onCameraReady={() => setCameraReady(true)}
+          // Puedes añadir un fallback si la cámara no se inicializa
+          onMountError={(error) => console.error("Error al montar la cámara:", error)}
+        />
       )}
 
       <View style={styles.overlay}>
         <Text style={styles.label}>IP del servidor:</Text>
         <TextInput
           style={styles.input}
-          placeholder="Ej: 192.168.1.100"
+          placeholder="Ej: 18.209.15.47"
           placeholderTextColor="#aaa"
           value={ip}
           onChangeText={setIp}
+          autoCapitalize="none" // Para IPs, no capitalizar
+          autoCorrect={false}   // Para IPs, no corregir automáticamente
         />
         <Text style={styles.label}>Puerto:</Text>
         <TextInput
@@ -784,119 +925,94 @@ export default function App() {
           keyboardType="numeric"
           value={port}
           onChangeText={setPort}
+          maxLength={5} // Un puerto no suele tener más de 5 dígitos
         />
 
-        <Button title="Tomar Foto" onPress={tomarFoto} disabled={!cameraReady || loading} />
-        <Button title="Enviar Imagen" onPress={enviarImagen} disabled={!imagen || loading} />
+        <View style={styles.buttonContainer}>
+          <Button title="Tomar Foto" onPress={tomarFoto} disabled={!cameraReady || loading} />
+          {/* Un poco de espacio entre botones */}
+          <View style={{ width: 10 }} /> 
+          <Button title="Enviar Imagen" onPress={enviarImagen} disabled={!imagen || loading} />
+        </View>
 
-        {loading && <ActivityIndicator size="large" color="#00ffcc" style={{ marginTop: 10 }} />}
+        {loading && (
+          <>
+            <ActivityIndicator size="large" color="#00ffcc" style={{ marginTop: 10 }} />
+            <Text style={{ color: "#fff", textAlign: "center", marginTop: 5 }}>Procesando...</Text>
+          </>
+        )}
 
         {placa && confidence && (
           <Text style={styles.text}>
-            Placa: {placa}{'\n'}
+            Placa: {placa} {"\n"}
             Confianza: {(confidence * 100).toFixed(2)}%
           </Text>
         )}
 
-        {imagen && <Image source={{ uri: imagen }} style={styles.preview} />}
+        {imagen && (
+          <Image 
+            source={{ uri: imagen }} 
+            style={styles.preview} 
+            accessibilityLabel="Imagen tomada por la cámara" // Accesibilidad
+          />
+        )}
       </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#000' },
+  container: { flex: 1, backgroundColor: "#000" },
   camera: { flex: 1 },
   overlay: {
-    position: 'absolute',
+    position: "absolute",
     bottom: 10,
-    width: '90%',
-    alignSelf: 'center',
-    backgroundColor: 'rgba(0,0,0,0.6)',
+    width: "90%",
+    alignSelf: "center",
+    backgroundColor: "rgba(0,0,0,0.8)", // Un poco más opaco para mejor contraste
     padding: 15,
     borderRadius: 10,
   },
-  label: { color: '#fff', marginTop: 5, fontSize: 16 },
+  label: { color: "#fff", marginTop: 5, fontSize: 16 },
   input: {
-    backgroundColor: '#222',
-    color: '#fff',
+    backgroundColor: "#222",
+    color: "#fff",
     paddingHorizontal: 10,
-    paddingVertical: 6,
+    paddingVertical: 8, // Ligeramente más padding vertical
     borderRadius: 8,
     marginBottom: 10,
+    fontSize: 16, // Para mejor legibilidad
   },
-  text: { color: '#fff', fontSize: 18, marginTop: 10, textAlign: 'center' },
-  preview: { width: '100%', height: 200, marginTop: 10, borderRadius: 8 },
+  buttonContainer: {
+    flexDirection: 'row', // Botones en fila
+    justifyContent: 'space-around', // Espacio entre ellos
+    marginTop: 10,
+    marginBottom: 10, // Espacio antes del indicador de carga
+  },
+  text: { color: "#fff", fontSize: 20, marginTop: 15, textAlign: "center", fontWeight: "bold" }, // Más grande y en negrita
+  preview: { width: "100%", height: 200, marginTop: 10, borderRadius: 8, borderWidth: 1, borderColor: '#00ffcc' }, // Borde para la imagen
+  center: { flex: 1, justifyContent: "center", alignItems: "center", backgroundColor: "#000" }, // Fondo oscuro también en pantalla de carga
 });
 
 ```
 
-### 2. Instalar dependencias necesarias
-```bash
-# Instalar Expo en el proyecto (si aún no lo tienes)
-npm install expo
+**ejecutar con npx expo start -c**
 
-# Texto a voz (Text-to-Speech)
-npx expo install expo-speech
+Asegúrate de haber guardado todos los cambios en package.json y index.tsx.
+Abre tu terminal en el directorio raíz de tu proyecto placas.
+Ejecuta el comando:
 
-# Cámara
-npx expo install expo-camera
-npm install react-native-image-picker
+npx expo start -c
 
-# Manipulación de imágenes
-npx expo install expo-image-manipulator
+Verás un mensaje que indica que se está limpiando el caché antes de iniciar el packager.
+Luego, como de costumbre, aparecerá el código QR.
+Escanea el código QR con la aplicación Expo Go en tu teléfono.
 
-# Guardar/leer archivos
-npx expo install expo-file-system
 
-# Reproducir audio
-npx expo install expo-av
-
-# Dibujos y gráficos (SVG)
-npx expo install react-native-svg
-
-# Peticiones HTTP
-npm install axios
-```
-### 3. Ejecutar la app
-
-Para iniciar tu app en modo desarrollo (web, Android o iOS):
-```bash
-npx expo start
-```
-
-Luego podrás escanear el código QR con la app Expo Go o ejecutar directamente con:
-```bash
-npx expo run:android
-```
-o
-
-npx expo run:ios
-
----
 # Opción 2 — Usar React Native CLI (nativo puro)
 
 Si quieres generar un APK/IPA nativo y tener acceso completo al código nativo.
 
-**1. Crear proyecto**
-```bash
-npx react-native init DetectorPlacas
-cd DetectorPlacas
-```
-**2. Instalar dependencias**
-``bash
-# Cámara y permisos
-npm install react-native-camera react-native-permissions
-
-# Texto a voz
-npm install react-native-tts
-
-# Selección / captura de imagen
-npm install react-native-image-picker
-
-# Peticiones HTTP
-npm install axios
-```
 
 **3. Configurar permisos Android**
 
