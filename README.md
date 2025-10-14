@@ -686,8 +686,72 @@ npx create-expo-app@latest DetectorPlacas--template expo-template-blank@sdk-51
 cd DetectorPlacas
 ```
 
+Edite el package.json y borre los archivos
+rd /s /q node_modules
+del package-lock.json
+
+```json
+{
+  "name": "detectorplacas",
+  "main": "expo-router/entry",
+  "version": "1.0.0",
+  "scripts": {
+    "start": "expo start",
+    "reset-project": "node ./scripts/reset-project.js",
+    "android": "expo start --android",
+    "ios": "expo start --ios",
+    "web": "expo start --web",
+    "lint": "expo lint"
+  },
+  "dependencies": {
+    "@expo/vector-icons": "^15.0.2",
+    "@react-navigation/bottom-tabs": "^7.4.0",
+    "@react-navigation/elements": "^2.6.3",
+    "@react-navigation/native": "^7.1.8",
+    "axios": "^1.12.2",
+    "expo": "~51.0.28",
+    "expo-camera": "~15.0.16",
+    "expo-constants": "~18.0.9",
+    "expo-font": "~14.0.9",
+    "expo-haptics": "~15.0.7",
+    "expo-image": "~3.0.9",
+    "expo-image-manipulator": "~12.0.5",
+    "expo-linking": "~8.0.8",
+    "expo-router": "~6.0.11",
+    "expo-speech": "~12.0.2",
+    "expo-splash-screen": "~31.0.10",
+    "expo-status-bar": "~1.12.1",
+    "expo-symbols": "~1.0.7",
+    "expo-system-ui": "~6.0.7",
+    "expo-web-browser": "~15.0.8",
+    "react": "18.2.0",
+    "react-dom": "18.2.0",
+    "react-native": "0.74.5",
+    "react-native-gesture-handler": "~2.28.0",
+    "react-native-reanimated": "~4.1.1",
+    "react-native-safe-area-context": "~5.6.0",
+    "react-native-screens": "~4.16.0",
+    "react-native-web": "~0.21.0",
+    "react-native-worklets": "0.5.1"
+  },
+  "devDependencies": {
+    "@types/react": "~18.2.45",
+    "eslint": "^9.25.0",
+    "eslint-config-expo": "~10.0.0",
+    "typescript": "~5.9.2"
+  },
+  "private": true
+}
+
+```
+
+
+
 ``bash
-npm install
+
+npx create-expo-app@latest my-app 
+npx expo --version
+
 ``
 ``bash
 npx expo install expo-camera expo-image-manipulator expo-speech
@@ -699,7 +763,6 @@ Si tu archivo principal actual se llama App.tsx, renómbralo a index.tsx.
 Borra el contenido de index.tsx.
 Pega el código completo de tu index.tsx que me proporcionaste al inicio de la conversación.
 Guarda el archivo.
-
 
 
 ```tsx
