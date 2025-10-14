@@ -613,10 +613,17 @@ Si dice “unauthorized”, toca Permitir depuración USB en tu celular.
 ##  Limpieza de instalaciones previas (solo si tuviste errores antes)
 
 ```bash
+npx create-expo-app@latest imagenes
+
+#Nota: Si estas en un proxy, de lo contrario continua verificando la versión del expo Cli
+
+npm config set proxy http://proxyaulas.unab.edu.com:8080
+npm config set https-proxy http://proxyaulas.unab.edu.com:8080
+npm config list
+
 
 npx expo --version
-Debe arrojr Expo CLI 0.19.3 si es menor debemos desinstalarla.
-
+Debe arrojar Expo CLI 0.19.3 si es menor debemos desinstalarla.
 
 npm uninstall -g react-native-cli
 npm cache clean --force
