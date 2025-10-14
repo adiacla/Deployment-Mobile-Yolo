@@ -682,57 +682,11 @@ lector-placas/
 Cree una carpeta de proyecto
 luego
 ```bash
-npx create-expo-app my-camera-app 
+npx create-expo-app@latest DetectorPlacas--template expo-template-blank@sdk-51
 cd DetectorPlacas
 ```
 
-Ajustar package.json para SDK 50:
-Abre package.json y modifica las versiones de expo y react-native a las correspondientes al SDK 50 (ej. ~50.0.0 y 0.73.6).
-
-```json
-"dependencies": {
-  "expo": "~51.0.0",
-  "expo-camera": "~15.0.0",
-  "expo-constants": "~19.0.0",
-  "expo-font": "~12.0.0",
-  "expo-haptics": "~16.0.0",
-  "expo-image": "~4.0.0",
-  "expo-image-manipulator": "~13.0.0",
-  "expo-linking": "~9.0.0",
-  "expo-router": "~3.5.0",
-  "expo-splash-screen": "~0.27.0",
-  "expo-speech": "~13.0.0",
-  "expo-status-bar": "~2.0.0",
-  "expo-system-ui": "~7.0.0",
-  "expo-web-browser": "~16.0.0",
-  "@expo/vector-icons": "^14.0.0",
-  "@react-navigation/native": "^7.0.0",
-  "@react-navigation/bottom-tabs": "^7.0.0",
-  "react": "18.2.0",
-  "react-native": "0.74.0",
-  "react-native-gesture-handler": "~2.14.0",
-  "react-native-reanimated": "~3.10.0",
-  "react-native-safe-area-context": "4.8.2",
-  "react-native-screens": "~3.29.0",
-  "react-native-web": "~0.19.6",
-  "axios": "^1.7.2"
-},
-"devDependencies": {
-  "@babel/core": "^7.24.0",
-  "typescript": "^5.3.3",
-  "eslint": "^9.25.0",
-  "eslint-config-expo": "~11.0.0",
-  "@types/react": "~18.2.45"
-}
-
-```
-
-**2. Instalar dependencias**
-Limpiar e instalar dependencias base (para SDK 50):
-
 ``bash
-rmdir /s /q node_modules
-del package-lock.json
 npm install
 ``
 ``bash
