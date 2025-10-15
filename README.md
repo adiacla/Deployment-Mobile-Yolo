@@ -337,18 +337,13 @@ def image_to_base64_jpg(img_bgr: np.ndarray) -> str:
 def home():
     return {"message": "YOLOv8 + OCR server running"}
 
+
 @app.post("/predict/")
 async def predict(file: UploadFile = File(...)):
     """
-    Recibe una imagen (form-data, campo 'file') y devuelve detecciones y OCR.
-    Respuesta JSON:
-    {
-      "placa": "ABC123" | null,
-      "detections": [
-         {"label":"car","confidence":0.92,"box":[x1,y1,x2,y2],"text": null}
-      ],
-      "image": "<base64 jpg>"  # opcional
-    }
+    Recibe una imagen (form-data, campo 'file') y devuelve solo los textos OCR de las placas detectadas.
+    Ejemplo de respuesta:
+      { "placas": ["ABC123", "XYZ987"] }
     """
     try:
         contents = await file.read()
@@ -357,81 +352,47 @@ async def predict(file: UploadFile = File(...)):
         if frame is None:
             return {"error": "No se pudo decodificar la imagen"}
 
-        # Inference YOLOv8 -> usar predict() para mayor compatibilidad
-        # conf=CONF_THRESH controla el umbral
+        # Detección con YOLOv8
         results = model.predict(source=frame, conf=CONF_THRESH, verbose=False)
-
         if not results:
-            return {"error": "No result from model"}
+            return {"placas": []}
 
-        r = results[0]  # primer resultado
-        # obtener boxes si existen
+        r = results[0]
         try:
             boxes_xyxy = r.boxes.xyxy.cpu().numpy() if len(r.boxes) > 0 else np.array([])
             boxes_conf = r.boxes.conf.cpu().numpy() if len(r.boxes) > 0 else np.array([])
             boxes_cls = r.boxes.cls.cpu().numpy() if len(r.boxes) > 0 else np.array([])
         except Exception:
-            # fallback si r.boxes no tiene estructura esperada
             boxes_xyxy = np.array([])
             boxes_conf = np.array([])
             boxes_cls = np.array([])
 
-        detections: List[Dict[str, Any]] = []
-        placa_detectada: Optional[str] = None
+        placas_detectadas = []
 
         if boxes_xyxy.size > 0:
             for i, box in enumerate(boxes_xyxy):
                 x1, y1, x2, y2 = map(int, box)
-                conf = float(boxes_conf[i]) if boxes_conf.size > 0 else None
                 cls_id = int(boxes_cls[i]) if boxes_cls.size > 0 else None
                 label = model.names[cls_id] if cls_id is not None and cls_id < len(model.names) else str(cls_id)
 
-                # recortar ROI con chequeo de límites
+                # recortar ROI de la placa
                 h, w = frame.shape[:2]
                 x1c, y1c = max(0, x1), max(0, y1)
                 x2c, y2c = min(w, x2), min(h, y2)
                 roi = frame[y1c:y2c, x1c:x2c].copy()
 
-                text_detected = None
-                # Ejecutar OCR solo si la etiqueta sugiere placa/license/plate
+                # ejecutar OCR si parece ser una placa
                 if any(k in label.lower() for k in ["placa", "plate", "license"]):
                     text_detected = ocr_read_text_from_roi(roi)
                     if text_detected:
-                        placa_detectada = text_detected  # si hay múltiples se sobrescribe; puedes cambiar lógica
+                        placas_detectadas.append(text_detected)
 
-                # Dibujar en la imagen final
-                color = (0, 255, 0)
-                cv2.rectangle(frame, (x1c, y1c), (x2c, y2c), color, 2)
-                label_text = f"{label} {conf:.2f}" if conf is not None else label
-                cv2.putText(frame, label_text, (x1c, max(15, y1c-6)),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
-
-                if text_detected:
-                    cv2.putText(frame, text_detected, (x1c, y2c + 20),
-                                cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 0), 2)
-
-                detections.append({
-                    "label": label,
-                    "confidence": round(conf, 4) if conf is not None else None,
-                    "box": [int(x1c), int(y1c), int(x2c), int(y2c)],
-                    "text": text_detected
-                })
-
-        # convertir imagen a base64 si lo deseamos
-        img_b64 = None
-        if RETURN_IMAGE:
-            img_b64 = image_to_base64_jpg(frame)
-
-        resp = {
-            "placa": placa_detectada,
-            "detections": detections,
-            "image": img_b64
-        }
-        return resp
+        return {"placas": placas_detectadas}
 
     except Exception as e:
         logger.exception("Error en /predict/: %s", e)
         return {"error": str(e)}
+
 
 # -------------------------
 # Iniciar servidor (si se ejecuta app.py directamente)
@@ -442,8 +403,12 @@ if __name__ == "__main__":
     logger.info("Arrancando uvicorn en 0.0.0.0:%s", port)
     # Nota: en producción recomendamos ejecutar: uvicorn app:app --host 0.0.0.0 --port 8080 --workers 1
     uvicorn.run("app:app", host="0.0.0.0", port=port, reload=False)
-
 ```
+Con nano haga
+nano app.py
+luego copia y pega el codigo
+lo guarda con CTRL-X y luego y
+Finalmente inicia el servicio del API usando python3 app.py
 ---
 ### docs#
 La URL http://3.80.229.31:8080/docs (reemplazando la IP por la tuya) es una interfaz automática de documentación interactiva que FastAPI genera por defecto.
@@ -475,8 +440,11 @@ Si algo no funciona, /docs te ayuda a verificar si el backend está recibiendo l
 Para ejecutar el servidor de FastAPI, usa Uvicorn:
 
  ```bash
+
+Recuerda simepre tener el enviroment activo:
 source venv/bin/activate
-python3 app.py 
+python3 app.py
+
  ```
 
 ![alt text](https://github.com/adiacla/FullStack-RNN/blob/main/Imagenes/ServidorAws.PNG?raw=true)
@@ -613,29 +581,15 @@ Si dice “unauthorized”, toca Permitir depuración USB en tu celular.
 ##  Limpieza de instalaciones previas (solo si tuviste errores antes)
 
 ```bash
-npx create-expo-app@latest imagenes
-
 #Nota: Si estas en un proxy, de lo contrario continua verificando la versión del expo Cli
 
 npm config set proxy http://proxyaulas.unab.edu.com:8080
 npm config set https-proxy http://proxyaulas.unab.edu.com:8080
 npm config list
 
-
 npx expo --version
-Debe arrojar Expo CLI 0.19.3 si es menor debemos desinstalarla.
-
-npm uninstall -g react-native-cli
 npm cache clean --force
 ```
-Limpiemos el cache
-npx clear-npx-cache
-npx expo --version
-
-
----
-
-
 # Lector de Placas - Instalación y Ejecución
 
 ## Requisitos
@@ -644,7 +598,6 @@ No necesitas crear nada manualmente en Android Studio. Solo asegúrate de tener:
 
 - **Android Studio** (para los SDKs y emuladores).  
 - **Dispositivo físico** con Depuración USB activada.
-
 ---
 
 ## Crear el proyecto en React Native / Expo
@@ -682,331 +635,285 @@ lector-placas/
 Cree una carpeta de proyecto
 luego
 ```bash
-npx create-expo-app@latest DetectorPlacas--template expo-template-blank@sdk-51
+npx create-expo-app@latest DetectorPlacas
 cd DetectorPlacas
 ```
-
-Edite el package.json y borre los archivos
-rd /s /q node_modules
-del package-lock.json
+Edite el archivo app.json
 
 ```json
 {
-  "name": "detectorplacas",
-  "main": "expo-router/entry",
-  "version": "1.0.0",
-  "scripts": {
-    "start": "expo start",
-    "reset-project": "node ./scripts/reset-project.js",
-    "android": "expo start --android",
-    "ios": "expo start --ios",
-    "web": "expo start --web",
-    "lint": "expo lint"
-  },
-  "dependencies": {
-    "@expo/vector-icons": "^15.0.2",
-    "@react-navigation/bottom-tabs": "^7.4.0",
-    "@react-navigation/elements": "^2.6.3",
-    "@react-navigation/native": "^7.1.8",
-    "axios": "^1.12.2",
-    "expo": "~51.0.28",
-    "expo-camera": "~15.0.16",
-    "expo-constants": "~18.0.9",
-    "expo-font": "~14.0.9",
-    "expo-haptics": "~15.0.7",
-    "expo-image": "~3.0.9",
-    "expo-image-manipulator": "~12.0.5",
-    "expo-linking": "~8.0.8",
-    "expo-router": "~6.0.11",
-    "expo-speech": "~12.0.2",
-    "expo-splash-screen": "~31.0.10",
-    "expo-status-bar": "~1.12.1",
-    "expo-symbols": "~1.0.7",
-    "expo-system-ui": "~6.0.7",
-    "expo-web-browser": "~15.0.8",
-    "react": "18.2.0",
-    "react-dom": "18.2.0",
-    "react-native": "0.74.5",
-    "react-native-gesture-handler": "~2.28.0",
-    "react-native-reanimated": "~4.1.1",
-    "react-native-safe-area-context": "~5.6.0",
-    "react-native-screens": "~4.16.0",
-    "react-native-web": "~0.21.0",
-    "react-native-worklets": "0.5.1"
-  },
-  "devDependencies": {
-    "@types/react": "~18.2.45",
-    "eslint": "^9.25.0",
-    "eslint-config-expo": "~10.0.0",
-    "typescript": "~5.9.2"
-  },
-  "private": true
+  "expo": {
+    "name": "my-camera-app",
+    "slug": "my-camera-app",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/images/icon.png",
+    "scheme": "mycameraapp",
+    "userInterfaceStyle": "automatic",
+    "newArchEnabled": true,
+
+    "ios": {
+      "supportsTablet": true,
+      "infoPlist": {
+        "NSCameraUsageDescription": "Permite a $(PRODUCT_NAME) acceder a tu cámara para tomar fotos y detectar placas.",
+        "NSMicrophoneUsageDescription": "Permite a $(PRODUCT_NAME) acceder a tu micrófono para las funciones de audio (como leer la placa)."
+      }
+    },
+
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/images/android-icon-foreground.png",
+        "backgroundColor": "#E6F4FE"
+      },
+      "permissions": [
+        "CAMERA",
+        "RECORD_AUDIO",
+        "INTERNET"
+      ],
+      "package": "com.unab.detectorplaca",
+      "edgeToEdgeEnabled": true,
+      "predictiveBackGestureEnabled": false
+    },
+
+    "web": {
+      "output": "static",
+      "favicon": "./assets/images/favicon.png"
+    },
+
+      "plugins": [
+        [
+          "expo-camera",
+          {
+            "cameraPermission": "Permite a $(PRODUCT_NAME) acceder a tu cámara.",
+            "microphonePermission": "Permite a $(PRODUCT_NAME) acceder a tu micrófono.",
+            "recordAudioAndroid": true
+          }
+        ],
+        "expo-router",
+        [
+          "expo-splash-screen",
+          {
+            "image": "./assets/images/splash-icon.png",
+            "imageWidth": 200,
+            "resizeMode": "contain",
+            "backgroundColor": "#ffffff",
+            "dark": {
+              "backgroundColor": "#000000"
+            }
+          }
+        ]
+      ],
+    "experiments": {
+      "typedRoutes": true,
+      "reactCompiler": true
+    }
+  }
 }
 
 ```
 
-
-
 ``bash
 
-npx create-expo-app@latest my-app 
-npx expo --version
-
-``
+Instale los paquetes requeridos
 ``bash
 npx expo install expo-camera expo-image-manipulator expo-speech
 npm install axios
 ```
 
-Copia tu código index.tsx:
-Si tu archivo principal actual se llama App.tsx, renómbralo a index.tsx.
-Borra el contenido de index.tsx.
-Pega el código completo de tu index.tsx que me proporcionaste al inicio de la conversación.
-Guarda el archivo.
-
+Copia tu código en index.tsx:
 
 ```tsx
-import axios from "axios";
-import { Camera, CameraType } from 'expo-camera'; // <-- Agregado CameraType para mayor claridad
-import * as ImageManipulator from "expo-image-manipulator";
-import * as Speech from "expo-speech";
-import React, { useEffect, useRef, useState } from "react";
-import { ActivityIndicator, Alert, Button, Image, StyleSheet, Text, TextInput, View, Platform } from "react-native"; // <-- Agregado Platform
+import { CameraView, useCameraPermissions } from 'expo-camera';
+import * as Speech from 'expo-speech';
+import React, { useEffect, useRef, useState } from 'react';
+import { ActivityIndicator, Alert, Button, Image, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
-export default function App() {
-  const [hasPermission, setHasPermission] = useState<boolean | null>(null);
-  const [cameraReady, setCameraReady] = useState(false);
-  const [imagen, setImagen] = useState<string | null>(null);
-  const [placa, setPlaca] = useState<string | null>(null);
-  const [confidence, setConfidence] = useState<number | null>(null);
+export default function CameraScreen() {
+  const cameraRef = useRef<any>(null);
+  const [permission, requestPermission] = useCameraPermissions();
+  const [ip, setIp] = useState('');
+  const [port, setPort] = useState('8080');
+  const [capturedPhoto, setCapturedPhoto] = useState<string | null>(null);
+  const [processedImage, setProcessedImage] = useState<string | null>(null);
+  const [plates, setPlates] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
-  // Es buena práctica usar un estado para la IP por defecto, pero permitir que el usuario la cambie.
-  // Podrías inicializarla desde una variable de entorno o configuración.
-  const [ip, setIp] = useState("18.209.15.47"); 
-  const [port, setPort] = useState("8080");
-  const cameraRef = useRef<Camera | null>(null);
 
   useEffect(() => {
-    (async () => {
-      // Solicitar permiso de cámara
-      const { status: cameraStatus } = await Camera.requestCameraPermissionsAsync();
-      // Solicitar permiso de micrófono (aunque no lo usas directamente para la foto, Expo lo pide)
-      const { status: microphoneStatus } = await Camera.requestMicrophonePermissionsAsync();
-      
-      // Considerar que ambos deben estar garantizados si ambos son críticos,
-      // o manejar individualmente si uno es opcional.
-      setHasPermission(cameraStatus === "granted" && microphoneStatus === "granted");
-    })();
-  }, []);
+    if (!permission) requestPermission();
+  }, [permission]);
 
-  // Manejo inicial de permisos antes de renderizar la cámara
-  if (hasPermission === null) {
-    return (
-      <View style={styles.center}>
-        <Text style={{ color: "#fff" }}>Cargando permisos de cámara...</Text>
-      </View>
-    );
-  }
-
-  if (hasPermission === false) {
-    return (
-      <View style={styles.center}>
-        <Text style={{ color: "#fff" }}>Necesitas permitir el acceso a la cámara y al micrófono para usar esta aplicación.</Text>
-      </View>
-    );
-  }
-
-  const tomarFoto = async () => {
-    if (!cameraReady) { // Asegurarse de que la cámara esté lista antes de intentar tomar la foto
-      Alert.alert("Error", "La cámara no está lista aún.");
+  const takePhoto = async () => {
+    if (!cameraRef.current) return;
+    if (!ip) {
+      Alert.alert('Error', 'Por favor ingresa la dirección IP del servidor.');
       return;
     }
-    if (cameraRef.current) {
-      try {
-        setLoading(true); // Mostrar indicador de carga mientras se toma y manipula la foto
-        const photo = await cameraRef.current.takePictureAsync({ base64: false });
-        // Comprobar si la URI de la foto es válida antes de manipularla
-        if (!photo.uri) {
-          Alert.alert("Error", "No se pudo obtener la URI de la foto.");
-          return;
-        }
-        
-        const manipResult = await ImageManipulator.manipulateAsync(
-          photo.uri,
-          [{ resize: { width: 800 } }],
-          { compress: 0.7, format: ImageManipulator.SaveFormat.JPEG }
-        );
-        
-        if (!manipResult.uri) {
-            Alert.alert("Error", "No se pudo manipular la imagen.");
-            return;
-        }
-        setImagen(manipResult.uri);
-      } catch (error) {
-        console.error("Error al tomar o manipular la foto:", error);
-        Alert.alert("Error", "No se pudo tomar o procesar la foto.");
-      } finally {
-        setLoading(false); // Ocultar indicador de carga
-      }
-    }
-  };
 
-  const enviarImagen = async () => {
-    if (!imagen) return Alert.alert("Error", "Toma primero una foto.");
-    // Usar la IP por defecto si el usuario no la ha cambiado
-    const serverIp = ip || "18.209.15.47";
-    const serverPort = port || "8080"; // Usar el puerto por defecto si el usuario no lo ha cambiado
+    const url = `http://${ip}:${port}/predict/`;
+    console.log('📤 Enviando imagen a:', url);
 
     setLoading(true);
-    setPlaca(null); // Limpiar resultados anteriores al enviar una nueva imagen
-    setConfidence(null);
-
+    setPlates([]);
     try {
-      const formData = new FormData();
-      formData.append("file", {
-        uri: Platform.OS === 'android' ? imagen : imagen.replace("file://", ""), // Corrección para iOS que a veces necesita remover "file://"
-        type: "image/jpeg",
-        name: "placa.jpg",
-      } as any);
-      
-      const url = `http://${serverIp}:${serverPort}/predict/`; // Usar serverIp y serverPort
+      const photo = await cameraRef.current.takePictureAsync({ base64: true });
+      setCapturedPhoto(photo.uri);
 
-      const response = await axios.post(url, formData, {
-        headers: { "Content-Type": "multipart/form-data" },
-        timeout: 10000, // Añadir un timeout para la petición (ej. 10 segundos)
+      const formData = new FormData();
+      formData.append('file', {
+        uri: photo.uri,
+        name: 'photo.jpg',
+        type: 'image/jpeg',
+      } as any);
+
+      const response = await fetch(url, {
+        method: 'POST',
+        body: formData,
       });
 
-      const data = response.data;
-      if (data.placa && data.detections?.length > 0) {
-        const detection = data.detections[0];
-        setPlaca(data.placa.toUpperCase());
-        setConfidence(detection.confidence);
-        Speech.speak(`Placa detectada: ${data.placa}`);
+      const data = await response.json();
+      console.log('📥 Respuesta del servidor:', data);
+
+      if (data.error) {
+        Alert.alert('Error del servidor', data.error);
       } else {
-        Alert.alert("Detección", "No se detectó ninguna placa en la imagen.");
+        const detected = data.placas || []; // plural
+        setPlates(detected);
+        setProcessedImage(data.image ? `data:image/jpeg;base64,${data.image}` : null);
+
+        if (detected.length > 0) {
+          const textToSpeak = `Se detectaron ${detected.length} placas: ${detected.join(', ')}`;
+          Speech.speak(textToSpeak, { language: 'es-ES' });
+        } else {
+          Speech.speak('No se detectaron placas');
+        }
       }
     } catch (error) {
-      console.error("Error al enviar imagen:", error);
-      // Manejo más específico de errores de red vs. errores del servidor
-      if (axios.isAxiosError(error)) {
-        if (error.response) {
-          // El servidor respondió con un status diferente de 2xx
-          Alert.alert("Error del servidor", `Código: ${error.response.status}, Mensaje: ${error.response.data?.message || 'Error desconocido'}`);
-        } else if (error.request) {
-          // La petición fue hecha pero no se recibió respuesta (ej. red caída, servidor no responde)
-          Alert.alert("Error de conexión", `No se pudo conectar con el servidor en http://${serverIp}:${serverPort}. Verifica la IP, puerto y conexión a internet.`);
-        } else {
-          // Algo más ocurrió al configurar la petición
-          Alert.alert("Error", "Algo salió mal al preparar la petición.");
-        }
-      } else {
-        Alert.alert("Error", `Ocurrió un error inesperado: ${error instanceof Error ? error.message : String(error)}`);
-      }
+      console.error('❌ Error enviando imagen:', error);
+      Alert.alert('Error de red', 'No se pudo conectar con el servidor.');
     } finally {
       setLoading(false);
     }
   };
 
+  if (!permission) {
+    return (
+      <View style={styles.container}>
+        <Text>Solicitando permisos...</Text>
+      </View>
+    );
+  }
+
+  if (!permission.granted) {
+    return (
+      <View style={styles.container}>
+        <Text>Se necesita permiso para usar la cámara.</Text>
+        <Button title="Conceder permiso" onPress={requestPermission} />
+      </View>
+    );
+  }
+
   return (
-    <View style={styles.container}>
-      {/* Vista de la cámara */}
-      {hasPermission && ( // Solo renderizar la cámara si tenemos permiso
-        <Camera
-          style={styles.camera}
-          type={CameraType.back} // Uso explícito de CameraType
-          ref={cameraRef}
-          onCameraReady={() => setCameraReady(true)}
-          // Puedes añadir un fallback si la cámara no se inicializa
-          onMountError={(error) => console.error("Error al montar la cámara:", error)}
-        />
+    <ScrollView contentContainerStyle={styles.container}>
+      <Text style={styles.label}>Dirección IP del servidor:</Text>
+      <TextInput
+        style={styles.input}
+        placeholder="Ej: 192.168.1.45"
+        value={ip}
+        onChangeText={setIp}
+      />
+
+      <Text style={styles.label}>Puerto:</Text>
+      <TextInput
+        style={styles.input}
+        placeholder="8080"
+        value={port}
+        onChangeText={setPort}
+        keyboardType="numeric"
+      />
+
+      <CameraView ref={cameraRef} style={styles.camera} facing="back" />
+      <Button title="Tomar foto" onPress={takePhoto} color="#007AFF" />
+
+      {loading && <ActivityIndicator size="large" color="#007AFF" style={{ marginTop: 20 }} />}
+
+      {capturedPhoto && (
+        <View style={styles.imageContainer}>
+          <Text style={styles.label}>📷 Imagen capturada:</Text>
+          <Image source={{ uri: capturedPhoto }} style={styles.image} />
+        </View>
       )}
 
-      <View style={styles.overlay}>
-        <Text style={styles.label}>IP del servidor:</Text>
-        <TextInput
-          style={styles.input}
-          placeholder="Ej: 18.209.15.47"
-          placeholderTextColor="#aaa"
-          value={ip}
-          onChangeText={setIp}
-          autoCapitalize="none" // Para IPs, no capitalizar
-          autoCorrect={false}   // Para IPs, no corregir automáticamente
-        />
-        <Text style={styles.label}>Puerto:</Text>
-        <TextInput
-          style={styles.input}
-          placeholder="8080"
-          placeholderTextColor="#aaa"
-          keyboardType="numeric"
-          value={port}
-          onChangeText={setPort}
-          maxLength={5} // Un puerto no suele tener más de 5 dígitos
-        />
-
-        <View style={styles.buttonContainer}>
-          <Button title="Tomar Foto" onPress={tomarFoto} disabled={!cameraReady || loading} />
-          {/* Un poco de espacio entre botones */}
-          <View style={{ width: 10 }} /> 
-          <Button title="Enviar Imagen" onPress={enviarImagen} disabled={!imagen || loading} />
+      {processedImage && (
+        <View style={styles.imageContainer}>
+          <Text style={styles.label}>🖼️ Imagen procesada por el servidor:</Text>
+          <Image source={{ uri: processedImage }} style={styles.image} />
         </View>
+      )}
 
-        {loading && (
-          <>
-            <ActivityIndicator size="large" color="#00ffcc" style={{ marginTop: 10 }} />
-            <Text style={{ color: "#fff", textAlign: "center", marginTop: 5 }}>Procesando...</Text>
-          </>
-        )}
-
-        {placa && confidence && (
-          <Text style={styles.text}>
-            Placa: {placa} {"\n"}
-            Confianza: {(confidence * 100).toFixed(2)}%
-          </Text>
-        )}
-
-        {imagen && (
-          <Image 
-            source={{ uri: imagen }} 
-            style={styles.preview} 
-            accessibilityLabel="Imagen tomada por la cámara" // Accesibilidad
-          />
-        )}
-      </View>
-    </View>
+      {plates.length > 0 && (
+        <View style={styles.resultContainer}>
+          <Text style={styles.label}>🚘 Placas detectadas:</Text>
+          {plates.map((p, i) => (
+            <Text key={i} style={styles.plateText}>{p}</Text>
+          ))}
+        </View>
+      )}
+    </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#000" },
-  camera: { flex: 1 },
-  overlay: {
-    position: "absolute",
-    bottom: 10,
-    width: "90%",
-    alignSelf: "center",
-    backgroundColor: "rgba(0,0,0,0.8)", // Un poco más opaco para mejor contraste
-    padding: 15,
+  container: {
+    flexGrow: 1,
+    alignItems: 'center',
+    justifyContent: 'flex-start',
+    backgroundColor: '#f5f5f5',
+    padding: 16,
+  },
+  label: {
+    fontWeight: 'bold',
+    marginBottom: 6,
+    color: '#333',
+  },
+  input: {
+    width: '90%',
+    height: 40,
+    borderColor: '#ccc',
+    borderWidth: 1,
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    marginBottom: 10,
+    backgroundColor: '#fff',
+  },
+  camera: {
+    width: '100%',
+    height: 400,
+    borderRadius: 12,
+    overflow: 'hidden',
+    marginBottom: 16,
+  },
+  imageContainer: {
+    marginTop: 16,
+    alignItems: 'center',
+  },
+  image: {
+    width: 300,
+    height: 200,
     borderRadius: 10,
   },
-  label: { color: "#fff", marginTop: 5, fontSize: 16 },
-  input: {
-    backgroundColor: "#222",
-    color: "#fff",
-    paddingHorizontal: 10,
-    paddingVertical: 8, // Ligeramente más padding vertical
+  resultContainer: {
+    marginTop: 20,
+    backgroundColor: '#007AFF20',
+    padding: 12,
     borderRadius: 8,
-    marginBottom: 10,
-    fontSize: 16, // Para mejor legibilidad
+    width: '90%',
   },
-  buttonContainer: {
-    flexDirection: 'row', // Botones en fila
-    justifyContent: 'space-around', // Espacio entre ellos
-    marginTop: 10,
-    marginBottom: 10, // Espacio antes del indicador de carga
+  plateText: {
+    fontSize: 22,
+    fontWeight: 'bold',
+    color: '#007AFF',
+    textAlign: 'center',
   },
-  text: { color: "#fff", fontSize: 20, marginTop: 15, textAlign: "center", fontWeight: "bold" }, // Más grande y en negrita
-  preview: { width: "100%", height: 200, marginTop: 10, borderRadius: 8, borderWidth: 1, borderColor: '#00ffcc' }, // Borde para la imagen
-  center: { flex: 1, justifyContent: "center", alignItems: "center", backgroundColor: "#000" }, // Fondo oscuro también en pantalla de carga
 });
 
 ```
@@ -1222,11 +1129,8 @@ export default App;
 
 5. Ejecutar en Android
 # Inicia Metro bundler
-npx react-native start
 
-# En otra terminal, ejecuta la app
-npx react-native run-android
-
+npx react-native start -c
 
 La app se instalará en tu emulador o dispositivo físico.
 
@@ -1242,12 +1146,6 @@ Agrega en ios/DetectorPlacas/Info.plist:
 <string>Necesitamos acceder a la galería para guardar fotos</string>
 <key>NSMicrophoneUsageDescription</key>
 <string>Necesitamos usar el micrófono para TTS</string>
-
-✅ Ventajas de cada opción
-Opción	Ventajas
-Expo	Rápido, sencillo, permisos manejados automáticamente, pruebas inmediatas en celular.
-React Native CLI	APK/IPA nativo listo para producción, acceso completo al código nativo, más control sobre permisos y librerías nativa
-
 ---
 
 ## Solución de errores comunes
@@ -1267,6 +1165,128 @@ React Native CLI	APK/IPA nativo listo para producción, acceso completo al códi
 - No instales `react-native-cli` globalmente.  
 - Usa siempre `npx react-native ...` para evitar conflictos.  
 - Mantén Android Studio y las SDK Tools actualizadas.  
+
+
+
+Prepara tu proyecto Expo para compilación nativa
+
+Tu proyecto actualmente usa Expo Managed Workflow (funciona con expo start), pero para compilar un APK real necesitas usar EAS Build o convertirlo a React Native prebuild (bare).
+
+Vamos con la forma recomendada 
+
+ ### Opción A – (RECOMENDADA) usar EAS Build
+
+EAS (Expo Application Services) genera el APK o AAB directamente en la nube sin configurar gradle manualmente.
+
+Instálalo:
+
+npm install -g eas-cli
+
+
+Inicia sesión con tu cuenta Expo:
+
+eas login
+
+
+Inicializa EAS en tu proyecto:
+
+eas build:configure
+
+### Conecta tu teléfono Android
+
+Conecta el teléfono por USB.
+
+Acepta el aviso de “Permitir depuración USB”.
+
+Verifica que Android Studio detecta el dispositivo:
+
+Abre Android Studio → Device Manager → debe aparecer tu celular.
+
+También puedes verificar con:
+
+adb devices
+
+
+Si ves tu dispositivo listado, todo está correcto.
+
+### Genera el APK con EAS
+
+Ejecuta:
+
+eas build -p android --profile preview
+
+
+Esto:
+
+Creará una compilación en la nube de Expo
+
+Y al final te mostrará un enlace para descargar el .apk o .aab.
+
+Si quieres el APK directamente instalable:
+
+eas build -p android --profile preview --local
+
+
+Este último requiere tener el SDK de Android local y configurado en el PATH.
+
+
+### Instala el APK en tu celular
+
+Una vez tengas el archivo .apk, puedes:
+
+Instalarlo desde Android Studio → Device File Explorer → Install APK
+
+O más fácil, desde terminal:
+
+adb install path/a/tu/app.apk
+
+
+El dispositivo mostrará la app instalada con el icono y nombre que definiste:
+
+## Detector de Placas
+
+**(Opcional)** Ejecutar directamente en tu teléfono desde Expo CLI**
+
+Mientras desarrollas, puedes ejecutar:
+
+npm run android
+
+
+Esto:
+
+Construirá la app nativa temporalmente
+
+La instalará automáticamente en tu teléfono conectado por USB
+
+Abrirá el modo debug (sin necesidad de EAS)
+
+Este comando requiere haber hecho una prebuild del proyecto:
+
+npx expo prebuild
+
+Esto genera las carpetas /android y /ios dentro de tu proyecto.
+
+Luego:
+
+npm run android
+
+La app se compilará localmente usando Gradle y se ejecutará en el dispositivo.
+
+Paso	      Acción	         Comando
+1	         Instalar EAS	   npm install -g eas-cli
+2	         Configurar	      eas build:configure
+3	         Conectar teléfono	adb devices
+4	         Construir app	   eas build -p android --profile preview
+5	         Instalar en el celular	adb install app.apk
+
+Cuando ya funcione todo, puedes:
+
+Firmar tu app con tu propia key (eas credentials)
+Generar un AAB para subirlo a Google Play:
+eas build -p android --profile production
+
+
+
 
 
 
