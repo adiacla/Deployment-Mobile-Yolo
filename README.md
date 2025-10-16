@@ -617,7 +617,10 @@ Reemplaza App.tsx con el código del lector de placas.
 **Estructura del proyecto:**
 ```lua
 lector-placas/
-├── App.tsx                👈 Aquí va tu código
+├── app
+     ├── {tabs}
+     ├── index.tsx
+├── ...              
 ├── app.json
 ├── babel.config.js
 ├── package.json
@@ -634,11 +637,13 @@ lector-placas/
 
 Cree una carpeta de proyecto
 luego
+
+
 ```bash
 npx create-expo-app@latest DetectorPlacas
 cd DetectorPlacas
 ```
-Edite el archivo app.json
+**Edite el archivo app.json**
 
 ```json
 {
@@ -668,7 +673,9 @@ Edite el archivo app.json
       "permissions": [
         "CAMERA",
         "RECORD_AUDIO",
-        "INTERNET"
+        "INTERNET",
+        "android.permission.CAMERA",
+        "android.permission.RECORD_AUDIO"
       ],
       "package": "com.unab.detectorplaca",
       "edgeToEdgeEnabled": true,
@@ -680,39 +687,53 @@ Edite el archivo app.json
       "favicon": "./assets/images/favicon.png"
     },
 
-      "plugins": [
-        [
-          "expo-camera",
-          {
-            "cameraPermission": "Permite a $(PRODUCT_NAME) acceder a tu cámara.",
-            "microphonePermission": "Permite a $(PRODUCT_NAME) acceder a tu micrófono.",
-            "recordAudioAndroid": true
-          }
-        ],
-        "expo-router",
-        [
-          "expo-splash-screen",
-          {
-            "image": "./assets/images/splash-icon.png",
-            "imageWidth": 200,
-            "resizeMode": "contain",
-            "backgroundColor": "#ffffff",
-            "dark": {
-              "backgroundColor": "#000000"
-            }
-          }
-        ]
+    "plugins": [
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Permite a $(PRODUCT_NAME) acceder a tu cámara.",
+          "microphonePermission": "Permite a $(PRODUCT_NAME) acceder a tu micrófono.",
+          "recordAudioAndroid": true
+        }
       ],
+      "expo-router",
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/images/splash-icon.png",
+          "imageWidth": 200,
+          "resizeMode": "contain",
+          "backgroundColor": "#ffffff",
+          "dark": {
+            "backgroundColor": "#000000"
+          }
+        }
+      ],
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "usesCleartextTraffic": true
+          }
+        }
+      ]
+    ],
+
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
+    },
+
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "951ec03e-29c2-45a7-8b75-ba2e8361708b"
+      }
     }
   }
 }
 
 ```
-
-``bash
 
 Instale los paquetes requeridos
 ``bash
@@ -931,204 +952,8 @@ Luego, como de costumbre, aparecerá el código QR.
 Escanea el código QR con la aplicación Expo Go en tu teléfono.
 
 
-# Opción 2 — Usar React Native CLI (nativo puro)
-
-Si quieres generar un APK/IPA nativo y tener acceso completo al código nativo.
-
-
-**3. Configurar permisos Android**
-
-Editar android/app/src/main/AndroidManifest.xml y agregar:
-```
-<uses-permission android:name="android.permission.CAMERA"/>
-<uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"/>
-<uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"/>
-<uses-permission android:name="android.permission.RECORD_AUDIO"/>
-<uses-permission android:name="android.permission.INTERNET"/>
-```
-**4. Código de App.tsx**
-```tsx
-import React, { useState, useEffect } from 'react';
-import {
-  View,
-  Text,
-  Button,
-  StyleSheet,
-  Image,
-  Alert,
-  Platform,
-  PermissionsAndroid,
-  TextInput,
-  ActivityIndicator,
-} from 'react-native';
-import { launchCamera } from 'react-native-image-picker';
-import Tts from 'react-native-tts';
-import axios from 'axios';
-
-const App = () => {
-  const [imagen, setImagen] = useState<string | null>(null);
-  const [placa, setPlaca] = useState<string | null>(null);
-  const [confidence, setConfidence] = useState<number | null>(null);
-  const [loading, setLoading] = useState(false);
-
-  // Campos para IP y puerto
-  const [ip, setIp] = useState('');
-  const [port, setPort] = useState('8080');
-
-  // Pedir permisos
-  const requestPermissions = async () => {
-    if (Platform.OS === 'android') {
-      const granted = await PermissionsAndroid.requestMultiple([
-        PermissionsAndroid.PERMISSIONS.CAMERA,
-        PermissionsAndroid.PERMISSIONS.READ_EXTERNAL_STORAGE,
-        PermissionsAndroid.PERMISSIONS.WRITE_EXTERNAL_STORAGE,
-      ]);
-      const allGranted = Object.values(granted).every(
-        status => status === PermissionsAndroid.RESULTS.GRANTED
-      );
-      if (!allGranted) {
-        Alert.alert('Permisos denegados', 'La app necesita permisos para funcionar.');
-      }
-    }
-  };
-
-  useEffect(() => {
-    requestPermissions();
-    Tts.setDefaultLanguage('es-ES');
-    Tts.setDefaultRate(0.5);
-  }, []);
-
-  const tomarFoto = () => {
-    launchCamera({ mediaType: 'photo', cameraType: 'back', quality: 0.5 }, response => {
-      if (response.didCancel) return;
-      if (response.errorCode) return console.log(response.errorMessage);
-      const uri = response.assets?.[0].uri;
-      setImagen(uri || null);
-    });
-  };
-
-  const enviarImagen = async () => {
-    if (!imagen) {
-      Alert.alert('Error', 'Toma primero una foto.');
-      return;
-    }
-    if (!ip) {
-      Alert.alert('Error', 'Ingresa la dirección IP del servidor.');
-      return;
-    }
-
-    setLoading(true);
-
-    try {
-      const formData = new FormData();
-      formData.append('upload', {
-        uri: imagen,
-        type: 'image/jpeg',
-        name: 'placa.jpg',
-      } as any);
-
-      const url = `http://${ip}:${port}/plate-reader/`; // API local
-
-      const response = await axios.post(url, formData, {
-        headers: { 'Content-Type': 'multipart/form-data' },
-      });
-
-      const result = response.data.results?.[0];
-      if (result) {
-        setPlaca(result.plate?.toUpperCase() || null);
-        setConfidence(result.confidence || null);
-        Tts.speak(`Placa detectada: ${result.plate}`);
-      } else {
-        Alert.alert('No se detectó ninguna placa.');
-      }
-    } catch (error: any) {
-      console.error(error);
-      Alert.alert('Error', `No se pudo conectar con ${ip}:${port}`);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  return (
-    <View style={styles.container}>
-      <Text style={styles.title}>📷 Lector de Placas</Text>
-
-      <Text style={styles.label}>IP del servidor:</Text>
-      <TextInput
-        style={styles.input}
-        placeholder="Ej: 192.168.1.100"
-        placeholderTextColor="#999"
-        value={ip}
-        onChangeText={setIp}
-      />
-
-      <Text style={styles.label}>Puerto:</Text>
-      <TextInput
-        style={styles.input}
-        placeholder="8080"
-        placeholderTextColor="#999"
-        keyboardType="numeric"
-        value={port}
-        onChangeText={setPort}
-      />
-
-      <Button title="Tomar Foto" onPress={tomarFoto} />
-      <View style={{ marginTop: 10 }} />
-      <Button title="Enviar Imagen" onPress={enviarImagen} />
-
-      {loading && (
-        <ActivityIndicator size="large" color="#007bff" style={{ marginTop: 15 }} />
-      )}
-
-      {imagen && <Image source={{ uri: imagen }} style={styles.image} />}
-
-      {placa && confidence && (
-        <Text style={styles.text}>
-          Placa: {placa} {'\n'}
-          Confianza: {(confidence * 100).toFixed(2)}%
-        </Text>
-      )}
-    </View>
-  );
-};
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 20,
-    backgroundColor: '#f9f9f9',
-  },
-  title: { fontSize: 24, marginBottom: 20, fontWeight: 'bold', color: '#333' },
-  label: { alignSelf: 'flex-start', color: '#333', fontSize: 16, marginTop: 10 },
-  input: {
-    width: '100%',
-    borderWidth: 1,
-    borderColor: '#ccc',
-    borderRadius: 8,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    fontSize: 16,
-    backgroundColor: '#fff',
-  },
-  image: {
-    width: 300,
-    height: 200,
-    marginTop: 20,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#ccc',
-  },
-  text: { marginTop: 10, fontSize: 18, textAlign: 'center', color: '#333' },
-});
-
-export default App;
-
-```
-
-5. Ejecutar en Android
-# Inicia Metro bundler
+# 5. Ejecutar en Android
+### Inicia Metro bundler
 
 npx react-native start -c
 
@@ -1167,14 +992,13 @@ Agrega en ios/DetectorPlacas/Info.plist:
 - Mantén Android Studio y las SDK Tools actualizadas.  
 
 
-
-Prepara tu proyecto Expo para compilación nativa
+# Prepara tu proyecto Expo para compilación nativa
 
 Tu proyecto actualmente usa Expo Managed Workflow (funciona con expo start), pero para compilar un APK real necesitas usar EAS Build o convertirlo a React Native prebuild (bare).
 
 Vamos con la forma recomendada 
 
- ### Opción A – (RECOMENDADA) usar EAS Build
+### Opción A – (RECOMENDADA) usar EAS Build
 
 EAS (Expo Application Services) genera el APK o AAB directamente en la nube sin configurar gradle manualmente.
 
