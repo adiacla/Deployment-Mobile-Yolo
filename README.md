@@ -236,14 +236,14 @@ el reconocimiento óptico de caracteres (OCR) para identificar placas vehiculare
 
 import os
 import logging
-from typing import Optional, List, Dict, Any
-from fastapi import FastAPI, File, UploadFile
+import base64
+from typing import List, Optional
+from fastapi import FastAPI, File, UploadFile, Form, Request
 from fastapi.middleware.cors import CORSMiddleware
 from ultralytics import YOLO
-import numpy as np
 import cv2
+import numpy as np
 import easyocr
-import base64
 
 # -------------------------
 # Config / Logging
@@ -251,10 +251,10 @@ import base64
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("yolo-plates")
 
-MODEL_PATH = os.getenv("MODEL_PATH", "best.pt")  # ruta al best.pt
-OCR_LANGS = os.getenv("OCR_LANGS", "en").split(",")  # ej: "en" o "en,es"
-CONF_THRESH = float(os.getenv("CONF_THRESH", 0.25))  # umbral de confianza para detecciones
-RETURN_IMAGE = os.getenv("RETURN_IMAGE", "1") != "0"  # devolver imagen en base64 por defecto
+MODEL_PATH = os.getenv("MODEL_PATH", "best.pt")  # Ruta al modelo YOLO
+OCR_LANGS = os.getenv("OCR_LANGS", "en").split(",")
+CONF_THRESH = float(os.getenv("CONF_THRESH", 0.25))
+RETURN_IMAGE = True  # Devolver imagen con detecciones
 
 # -------------------------
 # App init
@@ -263,7 +263,7 @@ app = FastAPI(title="YOLOv8 - Detector de Placas (OCR)")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # cambiar en producción por tu dominio
+    allow_origins=["*"],  # ⚠️ En producción cambia esto por tu dominio
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -272,66 +272,43 @@ app.add_middleware(
 # -------------------------
 # Cargar modelo y OCR
 # -------------------------
-logger.info("Cargando modelo YOLOv8 desde %s ...", MODEL_PATH)
-model = YOLO(MODEL_PATH)  # carga pesos
-logger.info("Modelo cargado: %s", getattr(model, "model", "YOLO model"))
+logger.info("🔹 Cargando modelo YOLOv8 desde %s ...", MODEL_PATH)
+model = YOLO(MODEL_PATH)
+logger.info("✅ Modelo YOLOv8 cargado correctamente.")
 
-logger.info("Inicializando EasyOCR con idiomas: %s", OCR_LANGS)
+logger.info("🔹 Inicializando EasyOCR con idiomas: %s", OCR_LANGS)
 reader = easyocr.Reader(OCR_LANGS, gpu=False)
+logger.info("✅ EasyOCR listo.")
 
 # -------------------------
 # Helpers
 # -------------------------
 def ocr_read_text_from_roi(roi_bgr: np.ndarray) -> Optional[str]:
-    """
-    Preprocesa el ROI y ejecuta EasyOCR. Devuelve la cadena concatenada (sin espacios)
-    o None si no se detecta texto.
-    """
+    """Ejecuta EasyOCR sobre un ROI y devuelve texto limpio (mayúsculas y sin espacios)."""
     try:
         if roi_bgr is None or roi_bgr.size == 0:
             return None
-        # Convert BGR -> RGB para EasyOCR
         roi_rgb = cv2.cvtColor(roi_bgr, cv2.COLOR_BGR2RGB)
-
-        # Escala y limpieza básica
-        h, w = roi_rgb.shape[:2]
-        scale = 1
-        if max(h, w) < 200:
-            scale = int(200 / max(h, w))
-            roi_rgb = cv2.resize(roi_rgb, (w * scale, h * scale), interpolation=cv2.INTER_CUBIC)
-
-        # Convertir a gris + equalize si ayuda
-        gray = cv2.cvtColor(roi_rgb, cv2.COLOR_RGB2GRAY)
-        gray = cv2.bilateralFilter(gray, d=9, sigmaColor=75, sigmaSpace=75)
-        gray = cv2.equalizeHist(gray)
-
-        # Adaptive threshold (opcional, EasyOCR suele funcionar bien sin binarizar)
-        # thresh = cv2.adaptiveThreshold(gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
-        #                                cv2.THRESH_BINARY, 11, 2)
-        # usar la imagen RGB o gray: EasyOCR acepta numpy array RGB
-        # preferimos pasar la imagen RGB para mejores resultados en multi-color
         result = reader.readtext(roi_rgb)
         if not result:
             return None
-        # Elegir el texto con mayor confianza
         best = max(result, key=lambda x: x[2])
         text = best[1]
-        if not text:
-            return None
-        # Normalizar: eliminar espacios extra y caracteres no alfanum
         text = "".join(ch for ch in text if ch.isalnum())
         return text.upper() if text else None
     except Exception as e:
         logger.exception("OCR error: %s", e)
         return None
 
+
 def image_to_base64_jpg(img_bgr: np.ndarray) -> str:
-    """Codifica imagen BGR a base64 JPG string"""
+    """Convierte imagen BGR a base64 (JPG)."""
     _, buffer = cv2.imencode('.jpg', img_bgr, [int(cv2.IMWRITE_JPEG_QUALITY), 85])
     return base64.b64encode(buffer).decode('utf-8')
 
+
 # -------------------------
-# Routes
+# Rutas
 # -------------------------
 @app.get("/")
 def home():
@@ -339,55 +316,93 @@ def home():
 
 
 @app.post("/predict/")
-async def predict(file: UploadFile = File(...)):
+async def predict(
+    file: Optional[UploadFile] = File(None),
+    image_base64: Optional[str] = Form(None)
+):
     """
-    Recibe una imagen (form-data, campo 'file') y devuelve solo los textos OCR de las placas detectadas.
-    Ejemplo de respuesta:
-      { "placas": ["ABC123", "XYZ987"] }
+    Recibe una imagen (multipart o base64) y devuelve:
+    {
+        "success": True,
+        "placas": ["ABC123", "XYZ987"],
+        "num_placas": 2,
+        "image": "...",  # base64 de la imagen procesada
+        "message": "OK"
+    }
     """
     try:
-        contents = await file.read()
-        nparr = np.frombuffer(contents, np.uint8)
+        logger.info("📩 Petición recibida en /predict/")
+
+        # Leer imagen desde form-data o base64
+        if file:
+            contents = await file.read()
+            nparr = np.frombuffer(contents, np.uint8)
+        elif image_base64:
+            # Limpiar base64 (por si tiene prefijo tipo "data:image/jpeg;base64,")
+            if image_base64.startswith("data:image"):
+                image_base64 = image_base64.split(",")[1]
+            image_base64 = image_base64.strip()
+            try:
+                img_data = base64.b64decode(image_base64 + "===")
+            except Exception as e:
+                logger.error("❌ Base64 inválido: %s", e)
+                return {"error": "Base64 inválido o corrupto."}
+            nparr = np.frombuffer(img_data, np.uint8)
+        else:
+            return {"error": "No se recibió ninguna imagen"}
+
+        # Decodificar imagen
         frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
         if frame is None:
             return {"error": "No se pudo decodificar la imagen"}
 
-        # Detección con YOLOv8
+        logger.info("🧠 Procesando imagen con YOLOv8...")
         results = model.predict(source=frame, conf=CONF_THRESH, verbose=False)
         if not results:
-            return {"placas": []}
+            return {"placas": [], "image": None, "success": True, "message": "Sin detecciones"}
 
         r = results[0]
-        try:
-            boxes_xyxy = r.boxes.xyxy.cpu().numpy() if len(r.boxes) > 0 else np.array([])
-            boxes_conf = r.boxes.conf.cpu().numpy() if len(r.boxes) > 0 else np.array([])
-            boxes_cls = r.boxes.cls.cpu().numpy() if len(r.boxes) > 0 else np.array([])
-        except Exception:
-            boxes_xyxy = np.array([])
-            boxes_conf = np.array([])
-            boxes_cls = np.array([])
+        boxes = r.boxes.xyxy.cpu().numpy() if len(r.boxes) > 0 else np.array([])
+        confs = r.boxes.conf.cpu().numpy() if len(r.boxes) > 0 else np.array([])
+        clss = r.boxes.cls.cpu().numpy() if len(r.boxes) > 0 else np.array([])
 
-        placas_detectadas = []
+        placas_detectadas: List[str] = []
 
-        if boxes_xyxy.size > 0:
-            for i, box in enumerate(boxes_xyxy):
-                x1, y1, x2, y2 = map(int, box)
-                cls_id = int(boxes_cls[i]) if boxes_cls.size > 0 else None
-                label = model.names[cls_id] if cls_id is not None and cls_id < len(model.names) else str(cls_id)
+        # Dibujar cajas sobre la imagen
+        for i, box in enumerate(boxes):
+            x1, y1, x2, y2 = map(int, box)
+            cls_id = int(clss[i]) if len(clss) > i else None
+            label = model.names[cls_id] if cls_id is not None and cls_id < len(model.names) else "objeto"
+            conf = confs[i] if len(confs) > i else 0
 
-                # recortar ROI de la placa
-                h, w = frame.shape[:2]
-                x1c, y1c = max(0, x1), max(0, y1)
-                x2c, y2c = min(w, x2), min(h, y2)
-                roi = frame[y1c:y2c, x1c:x2c].copy()
+            h, w = frame.shape[:2]
+            x1c, y1c = max(0, x1), max(0, y1)
+            x2c, y2c = min(w, x2), min(h, y2)
+            roi = frame[y1c:y2c, x1c:x2c].copy()
 
-                # ejecutar OCR si parece ser una placa
-                if any(k in label.lower() for k in ["placa", "plate", "license"]):
-                    text_detected = ocr_read_text_from_roi(roi)
-                    if text_detected:
-                        placas_detectadas.append(text_detected)
+            # OCR solo si el label coincide con "placa"/"plate"/"license"
+            if any(k in label.lower() for k in ["placa", "plate", "license"]):
+                text_detected = ocr_read_text_from_roi(roi)
+                if text_detected:
+                    placas_detectadas.append(text_detected)
+                    cv2.putText(frame, text_detected, (x1, max(30, y1 - 10)),
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 255, 255), 2)
 
-        return {"placas": placas_detectadas}
+            cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
+            cv2.putText(frame, f"{label} {conf:.2f}", (x1, y2 + 20),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 200, 0), 2)
+
+        img_b64 = image_to_base64_jpg(frame) if RETURN_IMAGE else None
+
+        logger.info("✅ Placas detectadas: %s", placas_detectadas)
+
+        return {
+            "success": True,
+            "placas": placas_detectadas,
+            "num_placas": len(placas_detectadas),
+            "image": img_b64,
+            "message": "OK" if placas_detectadas else "No se detectaron placas"
+        }
 
     except Exception as e:
         logger.exception("Error en /predict/: %s", e)
@@ -395,13 +410,79 @@ async def predict(file: UploadFile = File(...)):
 
 
 # -------------------------
-# Iniciar servidor (si se ejecuta app.py directamente)
+# Ruta alternativa JSON pura
+# -------------------------
+@app.post("/predict_json/")
+async def predict_json(request: Request):
+    """Permite enviar imagen como JSON con campo 'image_base64'."""
+    try:
+        body = await request.json()
+        image_base64 = body.get("image_base64")
+        if not image_base64:
+            return {"error": "No se recibió ninguna imagen"}
+
+        if image_base64.startswith("data:image"):
+            image_base64 = image_base64.split(",")[1]
+        image_base64 = image_base64.strip()
+        img_data = base64.b64decode(image_base64 + "===")
+        nparr = np.frombuffer(img_data, np.uint8)
+        frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+
+        if frame is None:
+            return {"error": "No se pudo decodificar la imagen"}
+
+        results = model.predict(source=frame, conf=CONF_THRESH, verbose=False)
+        if not results:
+            return {"placas": [], "image": None, "success": True, "message": "Sin detecciones"}
+
+        r = results[0]
+        boxes = r.boxes.xyxy.cpu().numpy() if len(r.boxes) > 0 else np.array([])
+        clss = r.boxes.cls.cpu().numpy() if len(r.boxes) > 0 else np.array([])
+        confs = r.boxes.conf.cpu().numpy() if len(r.boxes) > 0 else np.array([])
+
+        placas_detectadas = []
+
+        for i, box in enumerate(boxes):
+            x1, y1, x2, y2 = map(int, box)
+            cls_id = int(clss[i]) if len(clss) > i else None
+            label = model.names[cls_id] if cls_id is not None and cls_id < len(model.names) else "objeto"
+            conf = confs[i] if len(confs) > i else 0
+            h, w = frame.shape[:2]
+            roi = frame[max(0, y1):min(h, y2), max(0, x1):min(w, x2)].copy()
+
+            if any(k in label.lower() for k in ["placa", "plate", "license"]):
+                text_detected = ocr_read_text_from_roi(roi)
+                if text_detected:
+                    placas_detectadas.append(text_detected)
+                    cv2.putText(frame, text_detected, (x1, max(30, y1 - 10)),
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 255, 255), 2)
+
+            cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
+            cv2.putText(frame, f"{label} {conf:.2f}", (x1, y2 + 20),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 200, 0), 2)
+
+        img_b64 = image_to_base64_jpg(frame) if RETURN_IMAGE else None
+
+        return {
+            "success": True,
+            "placas": placas_detectadas,
+            "num_placas": len(placas_detectadas),
+            "image": img_b64,
+            "message": "OK" if placas_detectadas else "No se detectaron placas"
+        }
+
+    except Exception as e:
+        logger.exception("Error en /predict_json/: %s", e)
+        return {"error": str(e)}
+
+
+# -------------------------
+# Main
 # -------------------------
 if __name__ == "__main__":
     import uvicorn
     port = int(os.getenv("PORT", 8080))
-    logger.info("Arrancando uvicorn en 0.0.0.0:%s", port)
-    # Nota: en producción recomendamos ejecutar: uvicorn app:app --host 0.0.0.0 --port 8080 --workers 1
+    logger.info("🚀 Iniciando servidor en 0.0.0.0:%s", port)
     uvicorn.run("app:app", host="0.0.0.0", port=port, reload=False)
 ```
 Con nano haga
