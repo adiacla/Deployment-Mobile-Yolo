@@ -648,23 +648,21 @@ cd DetectorPlacas
 ```json
 {
   "expo": {
-    "name": "my-camera-app",
-    "slug": "my-camera-app",
+    "name": "detector-placas",
+    "slug": "detector-placas",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "mycameraapp",
+    "scheme": "detectorplacas",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
-
     "ios": {
       "supportsTablet": true,
       "infoPlist": {
-        "NSCameraUsageDescription": "Permite a $(PRODUCT_NAME) acceder a tu cámara para tomar fotos y detectar placas.",
-        "NSMicrophoneUsageDescription": "Permite a $(PRODUCT_NAME) acceder a tu micrófono para las funciones de audio (como leer la placa)."
+        "NSCameraUsageDescription": "Permite a la app acceder a la cámara para detectar placas.",
+        "NSMicrophoneUsageDescription": "Permite a la app usar el micrófono para reproducir voz."
       }
     },
-
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/android-icon-foreground.png",
@@ -677,16 +675,14 @@ cd DetectorPlacas
         "android.permission.CAMERA",
         "android.permission.RECORD_AUDIO"
       ],
-      "package": "com.unab.detectorplaca",
+      "package": "com.unab.detectorplacas",
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false
     },
-
     "web": {
       "output": "static",
       "favicon": "./assets/images/favicon.png"
     },
-
     "plugins": [
       [
         "expo-camera",
@@ -718,16 +714,14 @@ cd DetectorPlacas
         }
       ]
     ],
-
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
     },
-
     "extra": {
       "router": {},
       "eas": {
-        "projectId": "951ec03e-29c2-45a7-8b75-ba2e8361708b"
+        "projectId": "faeae102-4caa-45a3-b563-581b49aea017"
       }
     }
   }
@@ -747,70 +741,109 @@ Copia tu código en index.tsx:
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import * as Speech from 'expo-speech';
 import React, { useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, Button, Image, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import {
+  ActivityIndicator,
+  Alert,
+  Button,
+  Image,
+  Platform,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from 'react-native';
 
 export default function CameraScreen() {
   const cameraRef = useRef<any>(null);
   const [permission, requestPermission] = useCameraPermissions();
   const [ip, setIp] = useState('');
   const [port, setPort] = useState('8080');
-  const [capturedPhoto, setCapturedPhoto] = useState<string | null>(null);
+  const [image, setImage] = useState<string | null>(null);
   const [processedImage, setProcessedImage] = useState<string | null>(null);
   const [plates, setPlates] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
 
+  const apiUrl = ip && port ? `http://${ip}:${port}` : '';
+
   useEffect(() => {
-    if (!permission) requestPermission();
+    if (!permission) {
+      requestPermission();
+    }
   }, [permission]);
 
-  const takePhoto = async () => {
+  const handleCapture = async () => {
     if (!cameraRef.current) return;
     if (!ip) {
       Alert.alert('Error', 'Por favor ingresa la dirección IP del servidor.');
       return;
     }
 
-    const url = `http://${ip}:${port}/predict/`;
-    console.log('📤 Enviando imagen a:', url);
-
-    setLoading(true);
-    setPlates([]);
     try {
+      setLoading(true);
       const photo = await cameraRef.current.takePictureAsync({ base64: true });
-      setCapturedPhoto(photo.uri);
+      setImage(photo.uri);
+      setPlates([]);
+      setProcessedImage(null);
 
-      const formData = new FormData();
-      formData.append('file', {
-        uri: photo.uri,
-        name: 'photo.jpg',
-        type: 'image/jpeg',
-      } as any);
+      const fullUrl = `${apiUrl.endsWith('/') ? apiUrl.slice(0, -1) : apiUrl}/predict/`;
+      console.log('📤 Enviando imagen base64 a:', fullUrl);
 
-      const response = await fetch(url, {
+      const formBody = new URLSearchParams();
+      formBody.append('image_base64', photo.base64);
+
+      const response = await fetch(fullUrl, {
         method: 'POST',
-        body: formData,
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+          Accept: 'application/json',
+        },
+        body: formBody.toString(),
       });
+
+      if (!response.ok) {
+        const text = await response.text();
+        console.error('❌ Error HTTP:', response.status, text);
+        Alert.alert('Error HTTP', `Código: ${response.status}`);
+        Speech.speak('Ocurrió un error al contactar el servidor.');
+        return;
+      }
 
       const data = await response.json();
       console.log('📥 Respuesta del servidor:', data);
 
-      if (data.error) {
-        Alert.alert('Error del servidor', data.error);
-      } else {
-        const detected = data.placas || []; // plural
+      if (data?.placas && data.placas.length > 0) {
+        const detected = data.placas;
         setPlates(detected);
-        setProcessedImage(data.image ? `data:image/jpeg;base64,${data.image}` : null);
 
-        if (detected.length > 0) {
-          const textToSpeak = `Se detectaron ${detected.length} placas: ${detected.join(', ')}`;
-          Speech.speak(textToSpeak, { language: 'es-ES' });
-        } else {
-          Speech.speak('No se detectaron placas');
+        if (data.image) {
+          setProcessedImage(`data:image/jpeg;base64,${data.image}`);
         }
+
+        const textToSpeak =
+          detected.length === 1
+            ? `La placa detectada es ${detected[0].split('').join(' ')}`
+            : `Se detectaron ${detected.length} placas: ${detected.join(', ')}`;
+
+        if (Platform.OS !== 'web') {
+          Speech.speak(textToSpeak, { language: 'es-ES' });
+        }
+      } else if (data?.placas?.length === 0) {
+        if (Platform.OS !== 'web') Speech.speak('No se detectaron placas.');
+        Alert.alert('Resultado', 'No se detectaron placas.');
+        setPlates([]);
+        setProcessedImage(null);
+      } else if (data?.error) {
+        Alert.alert('Error del servidor', data.error);
+        if (Platform.OS !== 'web') Speech.speak('Ocurrió un error en el servidor.');
+      } else {
+        console.warn('⚠️ Respuesta inesperada:', data);
+        Alert.alert('Respuesta inesperada', JSON.stringify(data));
       }
     } catch (error) {
       console.error('❌ Error enviando imagen:', error);
-      Alert.alert('Error de red', 'No se pudo conectar con el servidor.');
+      Alert.alert('Error', 'No se pudo conectar al servidor.');
+      if (Platform.OS !== 'web') Speech.speak('No se pudo conectar al servidor.');
     } finally {
       setLoading(false);
     }
@@ -853,21 +886,21 @@ export default function CameraScreen() {
       />
 
       <CameraView ref={cameraRef} style={styles.camera} facing="back" />
-      <Button title="Tomar foto" onPress={takePhoto} color="#007AFF" />
+      <Button title="Tomar foto" onPress={handleCapture} color="#007AFF" />
 
       {loading && <ActivityIndicator size="large" color="#007AFF" style={{ marginTop: 20 }} />}
 
-      {capturedPhoto && (
+      {image && (
         <View style={styles.imageContainer}>
           <Text style={styles.label}>📷 Imagen capturada:</Text>
-          <Image source={{ uri: capturedPhoto }} style={styles.image} />
+          <Image source={{ uri: image }} style={styles.image} />
         </View>
       )}
 
       {processedImage && (
         <View style={styles.imageContainer}>
           <Text style={styles.label}>🖼️ Imagen procesada por el servidor:</Text>
-          <Image source={{ uri: processedImage }} style={styles.image} />
+          <Image source={{ uri: processedImage }} style={styles.image} resizeMode="contain" />
         </View>
       )}
 
